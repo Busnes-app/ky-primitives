@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -28,6 +29,7 @@ import (
 
 var (
 	ErrMalformed      = errors.New("oidcverify: token is not a three-part JWT")
+	ErrTokenType      = errors.New("oidcverify: token purpose does not match")
 	ErrAlgorithm      = errors.New("oidcverify: token algorithm is not RS256")
 	ErrUnknownKey     = errors.New("oidcverify: no JWKS key matches the token's kid")
 	ErrSignature      = errors.New("oidcverify: signature does not verify")
@@ -114,7 +116,8 @@ func (v *Verifier) leeway() time.Duration {
 	return v.Leeway
 }
 
-// Verify checks the token's signature against the issuer's JWKS and its standard claims.
+// Verify checks an authentication token against the issuer's JWKS and standard claims.
+// Logout and other security-event tokens are refused; use VerifyLogout for logout.
 // An unknown kid triggers at most one rate-limited JWKS refresh.
 func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 	return v.VerifyWithNonce(ctx, token, "")
@@ -124,6 +127,25 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 // flow. An empty nonce skips the check; a token carrying a nonce when none is expected is
 // still accepted, since access tokens carry none.
 func (v *Verifier) VerifyWithNonce(ctx context.Context, token, nonce string) (Claims, error) {
+	c, err := v.verifyJWT(ctx, token, "")
+	if err != nil {
+		return Claims{}, err
+	}
+	if _, ok := c.Raw["events"]; ok {
+		return Claims{}, ErrTokenType
+	}
+	if c.Subject == "" {
+		return Claims{}, ErrNoSubject
+	}
+	if nonce != "" && c.Nonce != nonce {
+		return Claims{}, ErrNonce
+	}
+	return c, nil
+}
+
+// verifyJWT shares cryptographic, issuer, audience and time checks across purposes.
+// An empty tokenType selects authentication; logout requires its exact explicit type.
+func (v *Verifier) verifyJWT(ctx context.Context, token, tokenType string) (Claims, error) {
 	if _, err := v.jwksURL(); err != nil {
 		return Claims{}, err
 	}
@@ -145,6 +167,13 @@ func (v *Verifier) VerifyWithNonce(ctx context.Context, token, nonce string) (Cl
 	}
 	if header.Alg != "RS256" {
 		return Claims{}, ErrAlgorithm
+	}
+	if tokenType != "" {
+		if header.Typ != tokenType {
+			return Claims{}, ErrTokenType
+		}
+	} else if header.Typ != "" && header.Typ != "JWT" && header.Typ != "at+jwt" {
+		return Claims{}, ErrTokenType
 	}
 	sig, err := decodeSegment(parts[2])
 	if err != nil {
@@ -182,10 +211,6 @@ func (v *Verifier) VerifyWithNonce(ctx context.Context, token, nonce string) (Cl
 		return Claims{}, ErrNotYetValid
 	case !c.IssuedAt.IsZero() && c.IssuedAt.After(now.Add(lw)):
 		return Claims{}, ErrIssuedInFuture
-	case c.Subject == "":
-		return Claims{}, ErrNoSubject
-	case nonce != "" && c.Nonce != nonce:
-		return Claims{}, ErrNonce
 	}
 	return c, nil
 }
@@ -220,9 +245,7 @@ func decodeSegment(s string) ([]byte, error) {
 
 func parseClaims(payload []byte) (Claims, error) {
 	var raw map[string]json.RawMessage
-	dec := json.NewDecoder(strings.NewReader(string(payload)))
-	dec.UseNumber()
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.Unmarshal(payload, &raw); err != nil || raw == nil {
 		return Claims{}, ErrMalformed
 	}
 	c := Claims{Raw: raw}
@@ -260,6 +283,10 @@ func numericDate(raw json.RawMessage) (time.Time, error) {
 	if len(raw) == 0 {
 		return time.Time{}, nil
 	}
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 || (raw[0] != '-' && (raw[0] < '0' || raw[0] > '9')) {
+		return time.Time{}, ErrMalformed
+	}
 	var n json.Number
 	if err := json.Unmarshal(raw, &n); err != nil {
 		return time.Time{}, ErrMalformed
@@ -268,7 +295,7 @@ func numericDate(raw json.RawMessage) (time.Time, error) {
 		return time.Unix(i, 0), nil
 	}
 	f, err := n.Float64()
-	if err != nil {
+	if err != nil || f >= math.MaxInt64 || f < math.MinInt64 {
 		return time.Time{}, ErrMalformed
 	}
 	return time.Unix(int64(f), 0), nil
