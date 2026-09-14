@@ -773,6 +773,51 @@ the lock so concurrent verifications share it, and a stale key set outlives an i
 (`TestJWKSRefreshIsRateLimitedAndStaleSetSurvivesOutage`, `TestUnknownKidDoesNotStallVerification`,
 `TestConcurrentUnknownKidsShareOneFetch`).
 
+
+### Back-channel logout
+
+`VerifyLogout` is the dedicated verifier for the KySignOn profile of
+[OpenID Connect Back-Channel Logout](https://openid.net/specs/openid-connect-backchannel-1_0.html#Validation):
+
+```go
+logout, err := v.VerifyLogout(ctx, logoutToken)
+// On success, atomically record (logout.Issuer, logout.JWTID) and invalidate
+// matching sessions. Keep the replay record through logout.ReplayUntil.
+```
+
+It shares the verifier's RS256 signature checks, HTTPS JWKS cache, issuer/audience checks,
+clock and leeway. It requires exact `typ: logout+jwt`, numeric `iat` and `exp`, a nonempty
+`jti`, a nonempty `sub` or `sid` (or both), and an `events` object whose
+`http://schemas.openid.net/event/backchannel-logout` member is an object. `nonce` and
+`token_use` must be absent, including null or empty values. Expiration must follow
+issuance; tokens older than `MaxLogoutTokenAge` (five minutes) plus leeway are refused,
+even with a later expiration. KySignOn currently issues two-minute tokens per attempt.
+`ReplayUntil` is the earlier expiration/freshness cutoff, including leeway (one minute
+by default). `ErrTokenType` reports a wrong token purpose; `ErrLogoutClaims` reports a
+logout-specific claim failure; common signature, issuer, audience and time errors are
+shared with `Verify`.
+
+The returned `LogoutClaims` is separate from authentication `Claims`. With `SessionID`,
+match the local sessions for this issuer/client and that session ID, checking `Subject`
+when present. Without `SessionID`, end all this client's sessions for `Issuer` and
+`Subject`. Never broaden an unknown session ID into a subject-wide logout. A missing
+local session is an idempotent success. The receiving product owns the HTTP body limit,
+durable replay check, session invalidation and audit transaction; this primitive verifies
+only and deliberately holds no replay database. Store replay IDs across restart and check
+them atomically with invalidation so concurrent deliveries cannot replay a logout.
+
+**Authentication compatibility:** `Verify`, `VerifyWithNonce` and `Middleware` now accept
+only an absent/empty `typ`, `JWT`, or `at+jwt`, and reject any `events` claim. An ID token
+with a logout type cannot authenticate, and ordinary ID/access tokens cannot authorize
+logout. Numeric dates must be JSON numbers rather than quoted numbers, nulls or values
+outside the supported integer range; payloads must be a single JSON object. Existing
+KySignOn ID/access tokens use `JWT` and remain compatible. Neither authentication API
+becomes an access-token-only verifier: products must still enforce their token-use policy.
+
+The `oidcverify/logout_test.go` suite checks both logout scopes, malformed claims,
+signatures, purpose separation through all three authentication APIs, JWKS reuse, and
+exact freshness/replay boundaries with an injected clock.
+
 ## scim
 
 The SCIM 2.0 client KySignOn provisions accounts with, and the RFC 7643 User type it shares
