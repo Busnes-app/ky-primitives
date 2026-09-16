@@ -6,7 +6,7 @@ Source: myslop folder `ky-primitives-offsite`, posts 233 and 236.
 
 ## Goal
 
-Publish `github.com/Busness-app/ky-primitives/offsite` as a nested Go module
+Publish `github.com/Busnes-app/ky-primitives/offsite` as a nested Go module
 providing S3, pinned SFTP, signed SMB 2/3, and local `Target` implementations.
 Products retain target persistence, credential sealing, scheduling, logging,
 and the choice of bytes to replicate.

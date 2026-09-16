@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
-	"github.com/Busness-app/ky-primitives/shamir"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/shamir"
 )
 
 // Indices {1,3,5}, never {1,2,3}: consecutive indices make every Lagrange coefficient 1,

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Busness-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/capsule"
 )
 
 // ErrNoDestination means a key is pinned but there is nowhere to put a capsule: not paired

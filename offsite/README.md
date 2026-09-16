@@ -64,5 +64,5 @@ limitation.
 This nested module uses namespaced repository tags such as `offsite/v0.1.0`:
 
 ```sh
-go get github.com/Busness-app/ky-primitives/offsite@v0.1.0
+go get github.com/Busnes-app/ky-primitives/offsite@v0.1.0
 ```

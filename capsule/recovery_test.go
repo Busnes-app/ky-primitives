@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func sealOne(t *testing.T, to recoverykey.PublicKey) []byte {

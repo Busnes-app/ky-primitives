@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/auditchain"
+	"github.com/Busnes-app/ky-primitives/auditchain"
 )
 
 func buildChain(t *testing.T, key []byte, n int) (string, auditchain.Anchor) {

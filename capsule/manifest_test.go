@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/capsule"
 )
 
 func TestReadUnverifiedManifestNeedsNoKey(t *testing.T) {

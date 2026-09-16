@@ -24,7 +24,7 @@ var forbidden = map[string]map[string]bool{
 	"recoveryclient": {"Restore": true},
 }
 
-const importPrefix = "github.com/Busness-app/ky-primitives/"
+const importPrefix = "github.com/Busnes-app/ky-primitives/"
 
 // MinFiles is how many Go files a walk must see before its verdict counts. A guard that
 // walked nothing passes vacuously, which the first draft of this test did.

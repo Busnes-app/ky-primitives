@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/auditchain"
+	"github.com/Busnes-app/ky-primitives/auditchain"
 )
 
 // testExpiresAt is a time-valued field declared only for these tests: the vocabulary in

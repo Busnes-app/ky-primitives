@@ -21,7 +21,7 @@ not built: nothing in the suite sends them yet (kysignon's AGENTS.md: "SCIM grou
 provisioning remain[s] a separate roadmap step"). The package is named `scim`, not
 `scimclient`, so the wire types can serve a stdlib server later without a rename.
 
-## Package `github.com/Busness-app/ky-primitives/scim` (stdlib only)
+## Package `github.com/Busnes-app/ky-primitives/scim` (stdlib only)
 
 Types, RFC 7643 core User with the attributes the suite uses:
 

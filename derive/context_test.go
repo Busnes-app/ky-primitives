@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/derive"
+	"github.com/Busnes-app/ky-primitives/derive"
 )
 
 func TestAuthSecretContextMatchesAuthSecret(t *testing.T) {

@@ -134,7 +134,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func loadVector(t *testing.T) (seed, pub []byte) {
@@ -433,8 +433,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
-	"github.com/Busness-app/ky-primitives/shamir"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/shamir"
 )
 
 // Indices {1,3,5}, never {1,2,3}: consecutive indices make every Lagrange coefficient 1,
@@ -504,7 +504,7 @@ Expected: FAIL, `undefined: recoverykey.Split`.
 ```go
 package recoverykey
 
-import "github.com/Busness-app/ky-primitives/shamir"
+import "github.com/Busnes-app/ky-primitives/shamir"
 
 // Split divides the private key's seed into total custodian shares, any threshold of which
 // rebuild it. It is thin over shamir.Split, and exists so that the thing being split is the
@@ -701,7 +701,7 @@ package capsule
 import (
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 // testRecoveryKey is a fresh keypair per test. Generation is fast enough that sharing one
@@ -724,7 +724,7 @@ package capsule_test
 import (
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func testRecoveryKey(t *testing.T) recoverykey.PrivateKey {
@@ -748,7 +748,7 @@ Add to the `var (...)` block, after `ErrDuplicatePath`:
 	ErrWrongRecoveryKey = errors.New("capsule is sealed to a different recovery key")
 ```
 
-Add `"github.com/Busness-app/ky-primitives/recoverykey"` to the imports.
+Add `"github.com/Busnes-app/ky-primitives/recoverykey"` to the imports.
 
 Replace `Open`'s doc comment and signature. The body is unchanged except the first line:
 
@@ -874,7 +874,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 ```
 
@@ -970,7 +970,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 ```
 
@@ -1024,7 +1024,7 @@ Specific sites that need more than the rule:
   }
   ```
 
-  Add `"github.com/Busness-app/ky-primitives/recoverykey"` to its imports.
+  Add `"github.com/Busnes-app/ky-primitives/recoverykey"` to its imports.
 
 - `capsule/fuzz_test.go`: generate one keypair before `f.Fuzz`:
 
@@ -1038,7 +1038,7 @@ Specific sites that need more than the rule:
   	})
   ```
 
-  Change the seed corpus path to `../testdata/capsules/kycap3.kycap` and every `"kycap/2"` literal in the corpus to `"kycap/3"`. Keep the `"kycap/1"` entry. Add `"github.com/Busness-app/ky-primitives/recoverykey"` to its imports.
+  Change the seed corpus path to `../testdata/capsules/kycap3.kycap` and every `"kycap/2"` literal in the corpus to `"kycap/3"`. Keep the `"kycap/1"` entry. Add `"github.com/Busnes-app/ky-primitives/recoverykey"` to its imports.
 
 - `capsule/authenticated_test.go`, `TestOpenRejectsATamperedManifest`: the edits table gains no rows here (Task 5 covers the new fields) but `priv := testRecoveryKey(t)` goes inside the `t.Run` closure, before `Seal`.
 
@@ -1106,8 +1106,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func sealOne(t *testing.T, to recoverykey.PublicKey) []byte {
@@ -1306,8 +1306,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 // TestWriteFixture writes testdata/capsules/kycap3.kycap and its seed. It is a no-op

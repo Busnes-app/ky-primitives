@@ -151,7 +151,7 @@ A tamper-evident chain nobody checks is decoration. This is the cheapest way to 
 
 ## The package
 
-`github.com/Busness-app/ky-primitives/logging`. Standard library only — `log/slog`,
+`github.com/Busnes-app/ky-primitives/logging`. Standard library only — `log/slog`,
 `encoding/json`, `context`, `time`, `os`, `strings`. No `log/syslog`: it is frozen, absent
 on Windows and Plan 9, and broken on macOS 12 and later since Apple's daemon stopped
 listening on the Unix socket.

@@ -880,7 +880,7 @@ err = target.Put(ctx, "attachments/object-id", body, size)
 See [`offsite/README.md`](offsite/README.md) for URL forms and the security
 contract. Release tags are namespaced for the nested module: `offsite/v0.1.0`.
 Consumers install that release with
-`go get github.com/Busness-app/ky-primitives/offsite@v0.1.0`.
+`go get github.com/Busnes-app/ky-primitives/offsite@v0.1.0`.
 
 ## Contributing
 

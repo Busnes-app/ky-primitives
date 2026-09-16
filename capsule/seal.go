@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 // Seal writes a kycap/3 container sealed to the suite recovery public key, and returns it

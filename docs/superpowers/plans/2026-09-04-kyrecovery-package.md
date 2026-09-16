@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** One stdlib-only package, `github.com/Busness-app/ky-primitives/kyrecovery`, holding the product-side KyRecovery backup code that four products currently carry as divergent copies, so every product becomes a thin adapter.
+**Goal:** One stdlib-only package, `github.com/Busnes-app/ky-primitives/kyrecovery`, holding the product-side KyRecovery backup code that four products currently carry as divergent copies, so every product becomes a thin adapter.
 
 **Architecture:** Lift `kysignon-server/internal/backup/{client,deposit,recoverykey,local,schedule,capsule,drill}.go` and `cmd/kysignon/main.go` (`restore`, `readShares`) into the package. Product-specific things become interfaces the product supplies: `Settings` (key-value rows), `Sealer` (AEAD under the deployment key), a `collect` callback (what to seal), a `checks` callback (drill assertions). Config, HTTP handlers, UI, audit API, compose and docs stay per product.
 
@@ -656,7 +656,7 @@ func TestGuardCatchesPlantedOpen(t *testing.T) {
 		write(t, root, fmt.Sprintf("p%d/p.go", i), "package p\n")
 	}
 	write(t, root, "cmd/x/main.go", `package main
-import "github.com/Busness-app/ky-primitives/capsule"
+import "github.com/Busnes-app/ky-primitives/capsule"
 func restore() { _ = capsule.Open }
 func other()   { _ = capsule.Open }
 `)
@@ -681,7 +681,7 @@ Expected: FAIL, undefined
 
 Copy the body of kysignon's `TestNothingInTheServerDecrypts` into `NoDecryptOutside(t testing.TB, repoRoot string, allowed map[string][]string)` with these changes:
 - `if !filepath.IsAbs(repoRoot) { t.Fatalf("guardtest: repo root must be absolute, got %q", repoRoot) }`.
-- Watched imports: add `github.com/Busness-app/ky-primitives/kyrecovery`; forbidden: `map[string]map[string]bool{"capsule": {"Open": true}, "recoverykey": {"Combine": true, "FromSeed": true}, "kyrecovery": {"Restore": true}}` keyed by the import's last path element, resolved through the file's alias table.
+- Watched imports: add `github.com/Busnes-app/ky-primitives/kyrecovery`; forbidden: `map[string]map[string]bool{"capsule": {"Open": true}, "recoverykey": {"Combine": true, "FromSeed": true}, "kyrecovery": {"Restore": true}}` keyed by the import's last path element, resolved through the file's alias table.
 - Allowance check: `slices.Contains(allowed[rel], enclosing(sel.Pos()))`.
 - Keep the skip list (`web`, `node_modules`, dot-dirs), `_test.go` skip, and `if seen < 10 { t.Fatalf(...) }`.
 
