@@ -80,7 +80,7 @@ cd /tmp && rm -rf dsprobe && mkdir dsprobe && cd dsprobe
 for r in gridlock-server kybookmarks-server kypassword-server; do
   cp -r "/home/yoshi/busness.app/$r" "$r"
   ( cd "$r" \
-    && go mod edit -replace github.com/Busness-app/ky-primitives=/home/yoshi/busness.app/ky-primitives \
+    && go mod edit -replace github.com/Busnes-app/ky-primitives=/home/yoshi/busness.app/ky-primitives \
     && echo "=== $r ===" \
     && go build ./... 2>&1 | head -5 )
 done
@@ -127,7 +127,7 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          repo="https://x-access-token:${GH_TOKEN}@github.com/Busness-app/${{ matrix.consumer }}.git"
+          repo="https://x-access-token:${GH_TOKEN}@github.com/Busnes-app/${{ matrix.consumer }}.git"
           if [ -n "${HEAD_REF}" ] && git ls-remote --exit-code --heads "${repo}" "${HEAD_REF}" >/dev/null 2>&1; then
             echo "Pairing with ${{ matrix.consumer }} branch ${HEAD_REF}"
             git clone --depth 1 --branch "${HEAD_REF}" "${repo}" "${{ matrix.consumer }}"
@@ -142,7 +142,7 @@ jobs:
 
       - name: Point the consumer at this checkout
         working-directory: ${{ matrix.consumer }}
-        run: go mod edit -replace github.com/Busness-app/ky-primitives=../ky-primitives
+        run: go mod edit -replace github.com/Busnes-app/ky-primitives=../ky-primitives
 
       - name: Build
         working-directory: ${{ matrix.consumer }}
@@ -160,7 +160,7 @@ Expected: `valid`
 
 - [ ] **Step 4: Record the credential requirement**
 
-This job needs `secrets.SUITE_READ_TOKEN` — a token with `contents: read` on the `Busness-app` organisation. **It is the one step in the whole plan gated on something outside the code.** If the repos are public, delete the `x-access-token:${GH_TOKEN}@` prefix and the `GH_TOKEN` env entry.
+This job needs `secrets.SUITE_READ_TOKEN` — a token with `contents: read` on the `Busnes-app` organisation. **It is the one step in the whole plan gated on something outside the code.** If the repos are public, delete the `x-access-token:${GH_TOKEN}@` prefix and the `GH_TOKEN` env entry.
 
 Add to `README.md` under a new `## Contributing` heading:
 
@@ -221,7 +221,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/capsule"
 )
 
 func TestReadUnverifiedManifestNeedsNoKey(t *testing.T) {
@@ -694,7 +694,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/auditchain"
+	"github.com/Busnes-app/ky-primitives/auditchain"
 )
 
 func appendOne(t *testing.T, key []byte, fields ...string) auditchain.Record {
@@ -1017,7 +1017,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/password"
+	"github.com/Busnes-app/ky-primitives/password"
 )
 
 func TestHashWithRoundTripsAtALowerCost(t *testing.T) {
@@ -1203,7 +1203,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/password"
+	"github.com/Busnes-app/ky-primitives/password"
 )
 
 func TestDummyVerifyDoesNotPanic(t *testing.T) {
@@ -1420,7 +1420,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/keyfile"
+	"github.com/Busnes-app/ky-primitives/keyfile"
 )
 
 func TestEachEncodingRoundTrips(t *testing.T) {
@@ -1778,7 +1778,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/derive"
+	"github.com/Busnes-app/ky-primitives/derive"
 )
 
 func TestAuthSecretContextMatchesAuthSecret(t *testing.T) {
@@ -2038,7 +2038,7 @@ added above has no test behind it, either write the test or delete the sentence.
 Clone gridlock's **paired branch**, not its default — the default branch has not taken
 Task 3's `Open` change, so checking it would either fail spuriously or pass vacuously.
 
-Run: `cd /tmp && rm -rf tagprobe && mkdir tagprobe && cd tagprobe && git clone --depth 1 -b feat/library-readiness /home/yoshi/busness.app/gridlock-server && cd gridlock-server && go mod edit -replace github.com/Busness-app/ky-primitives=/home/yoshi/busness.app/ky-primitives && go build ./... && go test -count=1 ./...`
+Run: `cd /tmp && rm -rf tagprobe && mkdir tagprobe && cd tagprobe && git clone --depth 1 -b feat/library-readiness /home/yoshi/busness.app/gridlock-server && cd gridlock-server && go mod edit -replace github.com/Busnes-app/ky-primitives=/home/yoshi/busness.app/ky-primitives && go build ./... && go test -count=1 ./...`
 Expected: PASS. Do not tag until it does.
 
 - [ ] **Step 5: Commit and tag**
@@ -2084,7 +2084,7 @@ was written and the process died before the anchor was saved. Under the current 
 ```bash
 cd /home/yoshi/busness.app/kybookmarks-server
 git checkout -b feat/library-readiness
-go mod edit -replace github.com/Busness-app/ky-primitives=/home/yoshi/busness.app/ky-primitives
+go mod edit -replace github.com/Busnes-app/ky-primitives=/home/yoshi/busness.app/ky-primitives
 go build ./... 2>&1 | head
 ```
 
@@ -2228,13 +2228,13 @@ Expected: PASS.
 - [ ] **Step 10: Pin the tag and drop the false indirect**
 
 ```bash
-go mod edit -dropreplace github.com/Busness-app/ky-primitives
-go mod edit -require github.com/Busness-app/ky-primitives@v0.2.0
+go mod edit -dropreplace github.com/Busnes-app/ky-primitives
+go mod edit -require github.com/Busnes-app/ky-primitives@v0.2.0
 go mod tidy
 grep 'ky-primitives' go.mod
 ```
 
-Expected: `github.com/Busness-app/ky-primitives v0.2.0` with **no** `// indirect` — the
+Expected: `github.com/Busnes-app/ky-primitives v0.2.0` with **no** `// indirect` — the
 package is imported directly, and `go mod tidy` removes the marking.
 
 - [ ] **Step 11: Add it to the downstream matrix**
@@ -2297,7 +2297,7 @@ files and delete the code.
 ```bash
 cd /home/yoshi/busness.app/kypassword-server
 git checkout -b feat/library-readiness
-go mod edit -replace github.com/Busness-app/ky-primitives=/home/yoshi/busness.app/ky-primitives
+go mod edit -replace github.com/Busnes-app/ky-primitives=/home/yoshi/busness.app/ky-primitives
 go build ./... 2>&1 | head
 sed -n '100,135p;160,200p;280,350p' internal/audit/audit.go
 ```
@@ -2382,8 +2382,8 @@ must be kept.
 - [ ] **Step 7: Pin the tag and drop the false indirect**
 
 ```bash
-go mod edit -dropreplace github.com/Busness-app/ky-primitives
-go mod edit -require github.com/Busness-app/ky-primitives@v0.2.0
+go mod edit -dropreplace github.com/Busnes-app/ky-primitives
+go mod edit -require github.com/Busnes-app/ky-primitives@v0.2.0
 go mod tidy
 grep 'ky-primitives' go.mod
 ```
@@ -2454,8 +2454,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/shamir"
-	"github.com/Busness-app/gridlock-server/internal/backup"
+	"github.com/Busnes-app/ky-primitives/shamir"
+	"github.com/Busnes-app/gridlock-server/internal/backup"
 )
 
 // A card a custodian is handed must parse back. Indices 1, 3 and 5 rather than 1, 2 and 3:
@@ -2526,8 +2526,8 @@ and pass `data`. Add `encoding/base64` to the imports.
 - [ ] **Step 6: Pin the tag**
 
 ```bash
-go mod edit -dropreplace github.com/Busness-app/ky-primitives
-go mod edit -require github.com/Busness-app/ky-primitives@v0.2.0
+go mod edit -dropreplace github.com/Busnes-app/ky-primitives
+go mod edit -require github.com/Busnes-app/ky-primitives@v0.2.0
 go mod tidy
 ```
 

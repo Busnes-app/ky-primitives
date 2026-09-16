@@ -9,8 +9,8 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
-	"github.com/Busness-app/ky-primitives/shamir"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/shamir"
 )
 
 func sealedFixture(t *testing.T) (string, []string) {

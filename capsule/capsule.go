@@ -21,7 +21,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 var (

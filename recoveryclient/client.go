@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 // uploadTimeout bounds one deposit. A container is at most 384 MiB and kyrecovery gives the

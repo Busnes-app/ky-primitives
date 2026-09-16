@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Busness-app/ky-primitives/auditchain"
+	"github.com/Busnes-app/ky-primitives/auditchain"
 )
 
 func main() {

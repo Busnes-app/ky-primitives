@@ -3,7 +3,7 @@ package capsule_test
 import (
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func testRecoveryKey(t *testing.T) recoverykey.PrivateKey {

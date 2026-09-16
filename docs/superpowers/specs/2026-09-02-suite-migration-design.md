@@ -99,7 +99,7 @@ Every phase below is downstream of fixing that.
 ## Phase 0 — Downstream CI
 
 **Deliverable:** a `downstream` job in `.github/workflows/ci.yml` that, for each consumer
-repo, checks it out, adds `replace github.com/Busness-app/ky-primitives => <this checkout>`,
+repo, checks it out, adds `replace github.com/Busnes-app/ky-primitives => <this checkout>`,
 and runs `go build ./...` and `go test ./...`.
 
 Runs on pull requests. Failing it means the library change broke a consumer, reported to
@@ -110,7 +110,7 @@ each phase lands. That list is the plan's progress bar.
 
 Two constraints:
 
-- The job needs read access to private `Busness-app` repos. A token with `contents: read`
+- The job needs read access to private `Busnes-app` repos. A token with `contents: read`
   on the org, or the repos are public. Resolve before writing the job — this is the one
   step that can be blocked by something outside the code.
 - `replace` must point at the checkout, not a version. A consumer pinned to a tag would

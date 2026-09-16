@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 // A capsule this package wrote, committed, and opened on every run. If it stops opening, a

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/auditchain"
+	"github.com/Busnes-app/ky-primitives/auditchain"
 )
 
 func appendOne(t *testing.T, key []byte, fields ...string) auditchain.Record {

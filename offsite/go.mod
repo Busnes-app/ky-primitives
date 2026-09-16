@@ -1,4 +1,4 @@
-module github.com/Busness-app/ky-primitives/offsite
+module github.com/Busnes-app/ky-primitives/offsite
 
 go 1.26.6
 

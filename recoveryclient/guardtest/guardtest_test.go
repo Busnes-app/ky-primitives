@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoveryclient/guardtest"
+	"github.com/Busnes-app/ky-primitives/recoveryclient/guardtest"
 )
 
 type recorder struct {
@@ -53,8 +53,8 @@ func TestGuardCatchesPlantedOpen(t *testing.T) {
 	write(t, root, "cmd/x/main.go", `package main
 
 import (
-	caps "github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	caps "github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func restore() { _ = caps.Open; _ = recoverykey.Combine }
@@ -75,13 +75,13 @@ func TestGuardSeesWebDirsPackageLevelInitialisersAndDotImports(t *testing.T) {
 	}
 	write(t, root, "web/x.go", `package web
 
-import "github.com/Busness-app/ky-primitives/capsule"
+import "github.com/Busnes-app/ky-primitives/capsule"
 
 func serve() { _ = capsule.Open }
 `)
 	write(t, root, "cmd/y/main.go", `package main
 
-import "github.com/Busness-app/ky-primitives/recoverykey"
+import "github.com/Busnes-app/ky-primitives/recoverykey"
 
 var combine = recoverykey.Combine
 
@@ -89,7 +89,7 @@ func restore() { _ = recoverykey.Combine }
 `)
 	write(t, root, "cmd/z/main.go", `package main
 
-import . "github.com/Busness-app/ky-primitives/capsule"
+import . "github.com/Busnes-app/ky-primitives/capsule"
 
 func restore() { _ = Open }
 `)

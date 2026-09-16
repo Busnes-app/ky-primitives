@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 func TestStoreRecoveryKeyIsWriteOnce(t *testing.T) {

@@ -28,7 +28,7 @@ var allowed = map[string]bool{
 
 var requireLine = regexp.MustCompile(`^([a-zA-Z0-9._~/-]+\.[a-zA-Z0-9._~/-]+)\s+v`)
 
-const selfModule = "github.com/Busness-app/ky-primitives"
+const selfModule = "github.com/Busnes-app/ky-primitives"
 
 // importsOf returns every quoted import path in src that starts with prefix.
 func importsOf(src, prefix string) []string {

@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Busness-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/capsule"
 )
 
 // MaxCapsuleFileBytes and MaxCapsuleTotalBytes are the caps capsule enforces on a payload,

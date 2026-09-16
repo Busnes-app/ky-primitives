@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/auditchain"
+	"github.com/Busnes-app/ky-primitives/auditchain"
 )
 
 // auditValue carries a chain record to the handler, plus whether the flat field keys

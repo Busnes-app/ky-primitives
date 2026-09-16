@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/password"
+	"github.com/Busnes-app/ky-primitives/password"
 )
 
 func TestHashWithRoundTripsAtALowerCost(t *testing.T) {

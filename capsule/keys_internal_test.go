@@ -3,7 +3,7 @@ package capsule
 import (
 	"testing"
 
-	"github.com/Busness-app/ky-primitives/recoverykey"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
 // testRecoveryKey is a fresh keypair per test. Generation is fast enough that sharing one

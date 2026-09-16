@@ -1,6 +1,6 @@
 package recoverykey
 
-import "github.com/Busness-app/ky-primitives/shamir"
+import "github.com/Busnes-app/ky-primitives/shamir"
 
 // Split divides the private key's seed into total custodian shares, any threshold of which
 // rebuild it. It is thin over shamir.Split, and exists so that the thing being split is the
