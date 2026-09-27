@@ -435,8 +435,10 @@ The route is public, so the response is built to be safe to show anyone.
   panicking check is `down`.
 
 The service status is the worst check status; no checks is `ok`. `ok` and `degraded`
-return 200, `down` returns 503, so an orchestrator liveness probe that reads only the code
-keeps working. `HEAD` returns the code with no body; other methods return 405.
+return 200, `down` returns 503, so a readiness probe or a monitor that reads only the code
+keeps working. Liveness should stay on a route that checks nothing: restarting the app does
+not fix a dependency, so a liveness probe wired to `/healthz` would restart in a loop while
+the dependency is down. `HEAD` returns the code with no body; other methods return 405.
 `Response` and `CheckResult` are exported for monitors that decode the body.
 
 ## password

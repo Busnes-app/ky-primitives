@@ -16,6 +16,10 @@ const Schema = "ky.health/1"
 // DefaultTimeout bounds a check whose Timeout is zero.
 const DefaultTimeout = 2 * time.Second
 
+// MaxTimeout bounds Check.Timeout: the handler's mutex is held for the whole evaluation, so
+// this must stay under kyPulse's 5 s request timeout.
+const MaxTimeout = 4 * time.Second
+
 // Status is the state of one check or of the whole service.
 type Status string
 
@@ -54,8 +58,8 @@ func DeclareReason(code string) Reason {
 	return Reason{code: code}
 }
 
-// Timeout is the reason for a check that missed its deadline.
-var Timeout = DeclareReason("timeout")
+// timeoutReason is the reason for a check that missed its deadline.
+var timeoutReason = DeclareReason("timeout")
 
 type outcome struct {
 	status Status
@@ -86,7 +90,7 @@ func classify(err error) (Status, string) {
 // Check is one dependency the service needs. Run must honour ctx.
 type Check struct {
 	Name    string        // [a-z][a-z0-9_]{0,63}, unique per handler
-	Timeout time.Duration // zero means DefaultTimeout
+	Timeout time.Duration // zero means DefaultTimeout; at most MaxTimeout
 	Run     func(ctx context.Context) error
 }
 

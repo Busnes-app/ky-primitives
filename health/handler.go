@@ -58,6 +58,9 @@ func newHandler(service string, lg *logging.Logger, now func() time.Time, checks
 		if c.Run == nil {
 			panic("health: check " + c.Name + " has no Run")
 		}
+		if c.Timeout > MaxTimeout {
+			panic("health: check " + c.Name + " timeout exceeds MaxTimeout")
+		}
 		seen[c.Name] = true
 		h.runners = append(h.runners, &runner{check: c})
 	}
@@ -78,7 +81,12 @@ func (h *handler) current(ctx context.Context) Response {
 	status, results, errs := evaluate(context.Background(), h.runners)
 	for i, res := range results {
 		if res.Status != OK {
-			h.lg.Log(ctx, checkFailed, checkName(res.Name), logging.ReasonCode(res.Reason), logging.Err(errs[i]))
+			fields := []logging.Field{checkName(res.Name)}
+			if res.Reason != "" {
+				fields = append(fields, logging.ReasonCode(res.Reason))
+			}
+			fields = append(fields, logging.Err(errs[i]))
+			h.lg.Log(ctx, checkFailed, fields...)
 		}
 	}
 	h.at = now

@@ -85,10 +85,19 @@ func TestHungCheckIsNotStartedAgain(t *testing.T) {
 			return nil
 		},
 	})
-	for range 3 {
-		_, results, _ := evaluate(context.Background(), rs)
+	for i := range 3 {
+		_, results, errs := evaluate(context.Background(), rs)
 		if results[0].Status != Down || results[0].Reason != "timeout" {
 			t.Fatalf("result = %+v", results[0])
+		}
+		// The first evaluation actually started the check and waited, so its error is the
+		// real deadline. Later evaluations find it still running and get the sentinel.
+		if i == 0 {
+			if !errors.Is(errs[0], context.DeadlineExceeded) {
+				t.Fatalf("err = %v", errs[0])
+			}
+		} else if !errors.Is(errs[0], errStillRunning) {
+			t.Fatalf("err = %v", errs[0])
 		}
 	}
 	if n := starts.Load(); n != 1 {

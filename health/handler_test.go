@@ -101,7 +101,9 @@ func TestErrorTextNeverReachesTheResponse(t *testing.T) {
 			t.Fatalf("response leaks %q: %s", leak, rec.Body.String())
 		}
 	}
-	// The operator still gets a line saying which check failed.
+	// The response is the guarantee; the stderr line follows logging.Err's limit, which
+	// drops wrapper text but keeps a leaf's text. The operator still gets a line saying
+	// which check failed.
 	var line map[string]any
 	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
 		t.Fatalf("log is not one JSON line: %v\n%s", err, logs.String())
@@ -193,6 +195,9 @@ func TestHandlerRejectsBadConstruction(t *testing.T) {
 		"bad check name":  func() { Handler("kyvault", lg, Check{Name: "Database", Run: ok}) },
 		"duplicate check": func() { Handler("kyvault", lg, Check{Name: "db", Run: ok}, Check{Name: "db", Run: ok}) },
 		"nil run":         func() { Handler("kyvault", lg, Check{Name: "db"}) },
+		"timeout over max": func() {
+			Handler("kyvault", lg, Check{Name: "db", Timeout: MaxTimeout + time.Millisecond, Run: ok})
+		},
 	}
 	for name, f := range cases {
 		t.Run(name, func(t *testing.T) {

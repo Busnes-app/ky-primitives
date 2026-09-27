@@ -7,21 +7,25 @@ import (
 	"sync/atomic"
 )
 
-var errPanicked = errors.New("health: check panicked")
+var (
+	errPanicked     = errors.New("health: check panicked")
+	errStillRunning = errors.New("health: check still running from a previous evaluation")
+)
 
 type runner struct {
 	check Check
 	busy  atomic.Bool
 }
 
-// run executes the check once. The error is the check's raw return, for the log only.
+// run executes the check once. The error is the check's raw return, or a sentinel from this
+// file, for the log only.
 func (r *runner) run(ctx context.Context) (CheckResult, error) {
 	res := CheckResult{Name: r.check.Name}
 	// A previous run that ignored its context is still going. Starting another would
 	// stack one goroutine per poll on a hung dependency.
 	if !r.busy.CompareAndSwap(false, true) {
-		res.Status, res.Reason = Down, Timeout.code
-		return res, context.DeadlineExceeded
+		res.Status, res.Reason = Down, timeoutReason.code
+		return res, errStillRunning
 	}
 	timeout := r.check.Timeout
 	if timeout <= 0 {
@@ -42,7 +46,7 @@ func (r *runner) run(ctx context.Context) (CheckResult, error) {
 		res.Status, res.Reason = classify(err)
 		return res, err
 	case <-ctx.Done():
-		res.Status, res.Reason = Down, Timeout.code
+		res.Status, res.Reason = Down, timeoutReason.code
 		return res, ctx.Err()
 	}
 }
