@@ -389,6 +389,56 @@ broken on macOS 12 and later. Writing RFC 5424 to stderr instead would double-fr
 line, because the collector already supplies a frame — so severity and facility are
 ordinary JSON fields and the frame is the agent's job.
 
+## health
+
+Serves `/healthz` in the suite's one shape, `ky.health/1`, which kyPulse reads. It is here
+rather than fixed per product because the shape is a wire contract: before it, the suite's
+health routes disagreed on path, field names, status codes and even content type, so a
+monitor needed an adapter per product.
+
+```go
+var appendDisabled = health.DeclareReason("append_disabled")
+
+mux.Handle("GET /healthz", health.Handler("kyvault", lg,
+	health.Check{Name: "database", Run: db.PingContext},
+	health.Check{Name: "audit", Run: func(ctx context.Context) error {
+		if auditor.Disabled() {
+			return health.Degrade(appendDisabled)
+		}
+		return nil
+	}},
+))
+```
+
+```json
+{"schema":"ky.health/1","service":"kyvault","status":"degraded","time":"2026-09-26T10:41:00Z",
+ "checks":[{"name":"database","status":"ok"},{"name":"audit","status":"degraded","reason":"append_disabled"}]}
+```
+
+The route is public, so the response is built to be safe to show anyone.
+
+- **No error text.** A check's error text never reaches the response: a DSN, a path or a
+  hostname in `err.Error()` is the leak this prevents. An ordinary error is `down` with no
+  reason. A check shows `degraded` or a reason only by returning `health.Degrade(r)` or
+  `health.Fail(r)`, where `r` came from `DeclareReason`, which panics at startup on a code
+  outside `[a-z0-9_]{1,64}`. The operator gets the rest on stderr: each non-ok check writes
+  a `health_check_failed` line with the check name, reason and `logging.Err` error kind.
+- **No version, build or uptime.** On a public route they fingerprint releases and reveal
+  restart timing. A monitor gets the version from the container image.
+- **Cached and shared.** One evaluation answers every request for `CacheFor` (5 s), and
+  concurrent requests share it, so hammering the route cannot hammer the database. The
+  evaluation uses its own context, so one client hanging up cannot cancel the result every
+  other client sees.
+- **Deadlines.** A check has `Timeout` (default 2 s) and must honour its context. A check
+  past its deadline is `down` with reason `timeout`, and a check still running from the
+  previous evaluation is not started again: it reports `timeout` until it returns. A
+  panicking check is `down`.
+
+The service status is the worst check status; no checks is `ok`. `ok` and `degraded`
+return 200, `down` returns 503, so an orchestrator liveness probe that reads only the code
+keeps working. `HEAD` returns the code with no body; other methods return 405.
+`Response` and `CheckResult` are exported for monitors that decode the body.
+
 ## password
 
 Hashes and verifies passwords with Argon2id.
