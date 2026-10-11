@@ -124,6 +124,9 @@ func LoadRecoveryKey(dataDir string, settings Settings) (RecoveryKey, error) {
 	if k.TotalShares, err = intSetting(settings, settingTotalShares); err != nil {
 		return RecoveryKey{}, err
 	}
+	if !validTopology(k.Threshold, k.TotalShares) {
+		return RecoveryKey{}, errors.New("recoveryclient: retained custodian topology is invalid")
+	}
 	return k, nil
 }
 
