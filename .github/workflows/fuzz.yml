@@ -26,8 +26,8 @@ jobs:
           - package: ./logging
             target: FuzzFieldValuesCannotForgeALine
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           check-latest: true
@@ -38,7 +38,7 @@ jobs:
         run: go test "$PKG" -run '^$' -fuzz "^${TARGET}$" -fuzztime=10m
       - name: Upload crashers
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crashers-${{ matrix.target }}
           path: ${{ github.workspace }}/**/testdata/fuzz/**
