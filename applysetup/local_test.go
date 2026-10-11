@@ -121,3 +121,20 @@ func TestLocalSetupRefusesASharedAncestor(t *testing.T) {
 		t.Fatal("refused socket was created")
 	}
 }
+
+func TestLocalSetupRefusesNoncanonicalSocketPaths(t *testing.T) {
+	dir := shortDir(t)
+	callback := func(context.Context, []byte, bool) (Report, error) { return Report{}, nil }
+	for _, socket := range []string{
+		filepath.Join(dir, "a") + "/../b/setup.sock",
+		dir + "//b/setup.sock",
+		dir + "/./b/setup.sock",
+	} {
+		if _, err := StartLocal(context.Background(), socket, callback, nil); err == nil {
+			t.Fatal("noncanonical socket path accepted", socket)
+		}
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatal("refused socket path created directories")
+	}
+}

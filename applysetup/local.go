@@ -20,8 +20,9 @@ import (
 // validates its own payload and owns all changes. Restart is the product's graceful-stop
 // request; a workload controller restarts it with the committed configuration.
 func StartLocal(ctx context.Context, socket string, apply func(context.Context, []byte, bool) (Report, error), restart func()) (func() error, error) {
-	if !filepath.IsAbs(socket) {
-		return nil, errors.New("setup socket path must be absolute")
+	// A noncanonical path (".." after a symlink) can bind outside the checked directory.
+	if !filepath.IsAbs(socket) || socket != filepath.Clean(socket) {
+		return nil, errors.New("setup socket path must be absolute and canonical")
 	}
 	if len(socket) > maxSocketPath {
 		return nil, fmt.Errorf("setup socket path exceeds the %d-byte Unix limit; shorten the data directory", maxSocketPath)
