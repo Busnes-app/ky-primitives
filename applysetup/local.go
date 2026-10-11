@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Busnes-app/ky-primitives/keyfile"
 	"io"
 	"net"
@@ -22,8 +23,8 @@ func StartLocal(ctx context.Context, socket string, apply func(context.Context, 
 	if !filepath.IsAbs(socket) {
 		return nil, errors.New("setup socket path must be absolute")
 	}
-	if len(socket) > 107 {
-		return nil, errors.New("setup socket path exceeds the 107-byte Unix limit; shorten the data directory")
+	if len(socket) > maxSocketPath {
+		return nil, fmt.Errorf("setup socket path exceeds the %d-byte Unix limit; shorten the data directory", maxSocketPath)
 	}
 	dir := filepath.Dir(socket)
 	if err := os.MkdirAll(dir, 0700); err != nil {

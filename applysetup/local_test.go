@@ -14,7 +14,7 @@ import (
 func TestLocalSetupAndReadOnlyInspection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	socket := filepath.Join(t.TempDir(), "private", "setup.sock")
+	socket := filepath.Join(shortDir(t), "private", "setup.sock")
 	var writes atomic.Int32
 	restarted := make(chan struct{})
 	c := Common{Service: "example", SetupID: "271333e2-c221-4601-b249-563b3d828530"}
@@ -59,7 +59,7 @@ func TestLocalSetupAndReadOnlyInspection(t *testing.T) {
 	}
 }
 func TestLocalSetupRefusesOccupiedAndPermissivePaths(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortDir(t)
 	socket := filepath.Join(dir, "occupied")
 	if err := os.WriteFile(socket, []byte("preserve"), 0600); err != nil {
 		t.Fatal(err)
@@ -80,11 +80,22 @@ func TestLocalSetupRefusesOccupiedAndPermissivePaths(t *testing.T) {
 }
 
 func TestLocalSetupNamesTheSocketPathLimit(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), strings.Repeat("d", 100), "setup.sock")
-	if _, err := StartLocal(context.Background(), socket, nil, nil); err == nil || !strings.Contains(err.Error(), "107-byte") {
+	socket := filepath.Join(shortDir(t), strings.Repeat("d", maxSocketPath), "setup.sock")
+	if _, err := StartLocal(context.Background(), socket, nil, nil); err == nil || !strings.Contains(err.Error(), "byte Unix limit") {
 		t.Fatal("overlong socket path not named", err)
 	}
 	if _, err := os.Stat(filepath.Dir(socket)); !os.IsNotExist(err) {
 		t.Fatal("refused socket created its directory")
 	}
+}
+
+// shortDir keeps socket paths under macOS's 103-byte limit; its t.TempDir is too long.
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "kyq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
 }
