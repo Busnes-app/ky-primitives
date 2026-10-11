@@ -956,3 +956,22 @@ once this change is on `master`.
 
 The other six suite repositories do not import this module and have no such workflow; adding
 one is a copy of the file with the cron minute changed.
+
+## Container-local installer setup
+
+`applysetup` provides strict private-file bundle decoding, file-referenced credentials,
+common SSO/identity/backup inputs, capability discovery and bounded report shapes.
+`keyfile.ReadPrivate` reads opaque private files through the same verified descriptor as
+key loading. Products retain their own transactions, audited grants, conflict handling,
+configuration activation and read-only checks; this package never changes a product.
+
+Products may opt into `ParsePreparation` to accept `--stage` with bounded secret-free
+stdin metadata; legacy `Parse` refuses that flag. Strictly decode and validate the
+product envelope (including extensions), use `Common.ValidatePreparation` for common
+metadata and distinct clean absolute credential references, then marshal canonical JSON
+before `Stage`. The Linux helper publishes only
+`<data>/installer/<setup UUID>/setup.json` through protected ancestry and private owned
+directories, atomically without replacing retained files. Check creates nothing;
+changed or unsafe input is refused. Other platforms refuse staging. `WritePreparation`
+emits a fixed `ky.setup-preparation/1` created/present receipt, describing metadata only.
+Credentials, accounts and product configuration remain separate native operations.
