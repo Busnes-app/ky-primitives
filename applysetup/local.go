@@ -27,6 +27,10 @@ func StartLocal(ctx context.Context, socket string, apply func(context.Context, 
 		return nil, fmt.Errorf("setup socket path exceeds the %d-byte Unix limit; shorten the data directory", maxSocketPath)
 	}
 	dir := filepath.Dir(socket)
+	// Another user able to modify any ancestor could redirect the chmod and bind below.
+	if err := keyfile.RequireTrustedAncestry(dir); err != nil {
+		return nil, errors.New("setup socket directory has an ancestor other users can modify")
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, errors.New("cannot create private setup directory")
 	}

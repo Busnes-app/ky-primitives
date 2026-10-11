@@ -96,6 +96,28 @@ func shortDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dir, err = filepath.EvalSymlinks(dir) // macOS /tmp is a symlink
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	return dir
+}
+
+func TestLocalSetupRefusesASharedAncestor(t *testing.T) {
+	shared := filepath.Join(shortDir(t), "shared")
+	private := filepath.Join(shared, "private")
+	if err := os.MkdirAll(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o777); err != nil { // writable by others, not sticky
+		t.Fatal(err)
+	}
+	callback := func(context.Context, []byte, bool) (Report, error) { return Report{}, nil }
+	if _, err := StartLocal(context.Background(), filepath.Join(private, "setup.sock"), callback, nil); err == nil {
+		t.Fatal("socket bound beneath an ancestor other users can modify")
+	}
+	if _, err := os.Lstat(filepath.Join(private, "setup.sock")); !os.IsNotExist(err) {
+		t.Fatal("refused socket was created")
+	}
 }

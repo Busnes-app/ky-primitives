@@ -342,6 +342,36 @@ func ReadPrivate(path string, limit int64) ([]byte, error) {
 	return raw, nil
 }
 
+func ownedByCurrentUser(fi os.FileInfo) bool {
+	uid, ok := ownerUID(fi)
+	return ok && uid == uint32(os.Geteuid())
+}
+
+// RequireTrustedAncestry refuses a path whose existing ancestors another user could
+// rename or replace: each must be a real directory owned by root or the current user,
+// writable by others only when root-owned and sticky. Missing components are allowed;
+// they can only be created beneath a verified ancestor.
+func RequireTrustedAncestry(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("keyfile: absolute path required")
+	}
+	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
+		info, err := os.Lstat(p)
+		if err == nil {
+			uid, ok := ownerUID(info)
+			shared := info.Mode().Perm()&0o022 != 0 && !(uid == 0 && info.Mode()&os.ModeSticky != 0)
+			if !info.IsDir() || !ok || (uid != 0 && uid != uint32(os.Geteuid())) || shared {
+				return fmt.Errorf("%w: %s has an untrusted ancestor", ErrUnsafe, path)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("keyfile: %w", err)
+		}
+		if p == filepath.Dir(p) {
+			return nil
+		}
+	}
+}
+
 // RequirePrivateDirectory validates a container-local control directory without
 // changing ownership or permissions. It refuses a symlink or a foreign/permissive path.
 func RequirePrivateDirectory(path string) error {
