@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/Busnes-app/ky-primitives/recoverykey"
@@ -112,5 +114,24 @@ func TestParsePinRequest(t *testing.T) {
 	}
 	if _, err := ParsePinRequest(b64+"!", 2, 3); err == nil {
 		t.Error("invalid base64 accepted")
+	}
+}
+
+func TestLoadRecoveryKeyRefusesCorruptTopologyWithoutRepair(t *testing.T) {
+	dir, s := t.TempDir(), memSettings{}
+	_, k := testKey(t)
+	if err := StoreRecoveryKey(dir, s, k); err != nil {
+		t.Fatal(err)
+	}
+	for _, topology := range [][2]int{{0, 1}, {1, 3}, {3, 2}, {2, 256}, {-2, 3}} {
+		s[settingThreshold] = strconv.Itoa(topology[0])
+		s[settingTotalShares] = strconv.Itoa(topology[1])
+		before := maps.Clone(s)
+		if _, err := LoadRecoveryKey(dir, s); err == nil {
+			t.Fatal("accepted corrupt topology", topology)
+		}
+		if !maps.Equal(before, s) {
+			t.Fatal("read repaired retained topology")
+		}
 	}
 }

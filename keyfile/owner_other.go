@@ -1,9 +1,8 @@
-//go:build !linux
+//go:build !unix
 
 package keyfile
 
 import "os"
 
-// Ownership metadata is not exposed portably. Symlink, identity, type and mode checks still
-// apply on these platforms.
-func ownedByCurrentUser(os.FileInfo) bool { return true }
+// Ownership cannot be verified here, so private reads fail closed.
+func ownerUID(os.FileInfo) (uint32, bool) { return 0, false }

@@ -211,6 +211,10 @@ func openKey(path string) (*os.File, os.FileInfo, error) {
 	if before.Mode()&os.ModeSymlink != 0 {
 		return nil, nil, fmt.Errorf("%w: %s is a symlink", ErrUnsafe, path)
 	}
+	// Opening a FIFO or device can block forever; refuse before open.
+	if !before.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("%w: %s is not a regular file", ErrUnsafe, path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("keyfile: %w", err)
@@ -309,3 +313,71 @@ func syncDir(dir string) error {
 func cryptoRandRead(b []byte) (int, error) { return cryptorand.Read(b) }
 
 var randRead = cryptoRandRead
+
+// ReadPrivate reads a bounded opaque secret or setup bundle from an existing private
+// regular file. It uses the same verified descriptor as key loading and never creates
+// or repairs a file. Content is returned only after ownership and mode checks pass.
+func ReadPrivate(path string, limit int64) ([]byte, error) {
+	if !filepath.IsAbs(path) || limit < 1 || limit > 1<<20 {
+		return nil, errors.New("keyfile: absolute path and a limit of 1 byte through 1 MiB required")
+	}
+	f, info, err := openKey(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if err := checkKeyInfo(info); err != nil {
+		return nil, err
+	}
+	if info.Size() > limit {
+		return nil, errors.New("keyfile: private file exceeds size limit")
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, errors.New("keyfile: private file exceeds size limit")
+	}
+	return raw, nil
+}
+
+func ownedByCurrentUser(fi os.FileInfo) bool {
+	uid, ok := ownerUID(fi)
+	return ok && uid == uint32(os.Geteuid())
+}
+
+// RequireTrustedAncestry refuses a path whose existing ancestors another user could
+// rename or replace: each must be a real directory owned by root or the current user,
+// writable by others only when root-owned and sticky. Missing components are allowed;
+// they can only be created beneath a verified ancestor.
+func RequireTrustedAncestry(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("keyfile: absolute path required")
+	}
+	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
+		info, err := os.Lstat(p)
+		if err == nil {
+			uid, ok := ownerUID(info)
+			shared := info.Mode().Perm()&0o022 != 0 && !(uid == 0 && info.Mode()&os.ModeSticky != 0)
+			if !info.IsDir() || !ok || (uid != 0 && uid != uint32(os.Geteuid())) || shared {
+				return fmt.Errorf("%w: %s has an untrusted ancestor", ErrUnsafe, path)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("keyfile: %w", err)
+		}
+		if p == filepath.Dir(p) {
+			return nil
+		}
+	}
+}
+
+// RequirePrivateDirectory validates a container-local control directory without
+// changing ownership or permissions. It refuses a symlink or a foreign/permissive path.
+func RequirePrivateDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !ownedByCurrentUser(info) || info.Mode().Perm()&0077 != 0 {
+		return errors.New("keyfile: directory must be private and owned by the current user")
+	}
+	return nil
+}
