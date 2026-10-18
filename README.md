@@ -112,8 +112,9 @@ to start and a half-restored keyset otherwise poisons every retry.
 
 Refused: path traversal, absolute paths, backslash separators, NUL bytes, symlinks,
 hardlinks, directories, device nodes, FIFOs, two members that normalise to one
-destination, archives over 256 MiB expanded, members over 64 MiB, more than 4096 files,
-and any restore into a non-empty directory. File modes are clamped to owner-only — a
+destination, archives over 256 MiB expanded (the tar stream, so per-member headers and
+padding count, and `Seal` measures the same bytes), members over 64 MiB, more than 4096
+files, and any restore into a non-empty directory. File modes are clamped to owner-only — a
 restored capsule carries signing keys, and an archive header is attacker-controlled.
 
 The two size numbers are memory budgets rather than archive sizes, because `Open` holds

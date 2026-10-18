@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/recoverykey"
@@ -136,13 +137,15 @@ func buildPayload(files []File) ([]byte, []FileEntry, error) {
 	if len(files) > MaxFiles {
 		return nil, nil, fmt.Errorf("%w: %d files, Open permits %d", ErrCapsuleTooLarge, len(files), MaxFiles)
 	}
-	var total int64
 	seen := make(map[string]struct{}, len(files))
 	entries := make([]FileEntry, 0, len(files))
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
+	// Open bounds the decompressed tar stream, headers, padding, the list and the trailer
+	// included, so that stream is what gets measured here. Counting member content alone
+	// sealed capsules Open then refused.
+	tw := tar.NewWriter(&budgetWriter{w: gw, limit: MaxExpandedBytes})
 
 	for _, f := range files {
 		// Seal enforces the same containment Open does, so a capsule this package writes
@@ -159,10 +162,6 @@ func buildPayload(files []File) ([]byte, []FileEntry, error) {
 		size := int64(len(f.Content))
 		if size > MaxFileBytes {
 			return nil, nil, fmt.Errorf("%w: %q is %d bytes, Open permits %d", ErrCapsuleTooLarge, name, size, MaxFileBytes)
-		}
-		total += size
-		if total > MaxExpandedBytes {
-			return nil, nil, fmt.Errorf("%w: payload exceeds %d bytes", ErrCapsuleTooLarge, MaxExpandedBytes)
 		}
 		mode := f.Mode.Perm() & 0700
 		if mode == 0 {
@@ -201,9 +200,6 @@ func buildPayload(files []File) ([]byte, []FileEntry, error) {
 	if len(list) > maxFileListBytes {
 		return nil, nil, fmt.Errorf("%w: file list is %d bytes, Open permits %d", ErrCapsuleTooLarge, len(list), maxFileListBytes)
 	}
-	if total+int64(len(list)) > MaxExpandedBytes {
-		return nil, nil, fmt.Errorf("%w: payload exceeds %d bytes", ErrCapsuleTooLarge, MaxExpandedBytes)
-	}
 	if err := tw.WriteHeader(&tar.Header{
 		Name:     reservedFileList,
 		Mode:     0600,
@@ -224,4 +220,20 @@ func buildPayload(files []File) ([]byte, []FileEntry, error) {
 		return nil, nil, err
 	}
 	return buf.Bytes(), entries, nil
+}
+
+// budgetWriter is the sealing side of countingReader: it refuses the write that takes the
+// tar stream past limit, the same bytes Open counts after decompression.
+type budgetWriter struct {
+	w     io.Writer
+	limit int64
+	n     int64
+}
+
+func (b *budgetWriter) Write(p []byte) (int, error) {
+	b.n += int64(len(p))
+	if b.n > b.limit {
+		return 0, fmt.Errorf("%w: payload expands past %d bytes counting tar headers and padding", ErrCapsuleTooLarge, b.limit)
+	}
+	return b.w.Write(p)
 }
