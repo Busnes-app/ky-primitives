@@ -32,7 +32,7 @@ import (
 const (
 	MaxFiles         = 4096
 	MaxFileBytes     = int64(64 << 20)  // 64 MiB for any single member
-	MaxExpandedBytes = int64(256 << 20) // 256 MiB across the whole archive
+	MaxExpandedBytes = int64(256 << 20) // 256 MiB of tar stream: members plus headers, padding, list and trailer
 )
 
 // reservedFileList is the payload member carrying the encoded []FileEntry. It is metadata,

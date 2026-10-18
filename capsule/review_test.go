@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -279,5 +280,71 @@ func TestExtractRejectsPathsThatCollideAfterNormalisation(t *testing.T) {
 				t.Fatalf("got %v, want ErrDuplicatePath", err)
 			}
 		})
+	}
+}
+
+// Issue #20: Seal counted member content against MaxExpandedBytes while Open counts the
+// whole tar stream, so many small members near the limit sealed and then never restored.
+// This builds a payload whose tar stream is exactly MaxExpandedBytes, then one content
+// byte more, which the old content-only count would also have sealed.
+func TestSealCountsTarFramingLikeOpen(t *testing.T) {
+	const n, size = 4000, 64 << 10 // framing is ~2 MiB of the stream here
+	block := func(x int64) int64 { return (x + 511) / 512 * 512 }
+
+	// Every member but the last shares one buffer, so the test holds one payload's worth
+	// of memory rather than two.
+	build := func(last int64) []File {
+		buf := make([]byte, max(last, size))
+		files := make([]File, n)
+		for i := range files {
+			files[i] = File{Path: fmt.Sprintf("f%05d", i), Content: buf[:size], Mode: 0600}
+		}
+		files[n-1].Content = buf[:last]
+		return files
+	}
+	// The tar stream: a header and padded content per member, the same for the reserved
+	// file list, then the two-block trailer.
+	streamSize := func(files []File) int64 {
+		entries := make([]FileEntry, len(files))
+		sums := map[int]string{} // members share content, so hash each length once
+		var s int64
+		for i, f := range files {
+			if _, ok := sums[len(f.Content)]; !ok {
+				sum := sha256.Sum256(f.Content)
+				sums[len(f.Content)] = hex.EncodeToString(sum[:])
+			}
+			entries[i] = FileEntry{Path: f.Path, Size: int64(len(f.Content)), Sum: sums[len(f.Content)], Mode: 0600}
+			s += 512 + block(int64(len(f.Content)))
+		}
+		list, err := json.Marshal(entries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s + 512 + block(int64(len(list))) + 1024
+	}
+
+	// Grow the last member until the stream lands on the limit. Its size changes the list
+	// length too, so iterate to a fixed point rather than solve once.
+	last := int64(size)
+	for range 4 {
+		last += MaxExpandedBytes - streamSize(build(last))
+	}
+	atLimit := build(last)
+	if got := streamSize(atLimit); got != MaxExpandedBytes || last > MaxFileBytes {
+		t.Fatalf("fixture stream is %d bytes with a %d-byte last member, want exactly %d", got, last, MaxExpandedBytes)
+	}
+
+	priv := testRecoveryKey(t)
+	raw, _, err := Seal("t", "1", atLimit, nil, nil, 2, 3, priv.Public())
+	if err != nil {
+		t.Fatalf("a stream of exactly MaxExpandedBytes was refused: %v", err)
+	}
+	if _, got, err := Open(raw, priv, ""); err != nil || len(got) != n {
+		t.Fatalf("Open of a capsule Seal wrote: %d files, %v", len(got), err)
+	}
+
+	_, _, err = Seal("t", "1", build(last+1), nil, nil, 2, 3, priv.Public())
+	if !errors.Is(err, ErrCapsuleTooLarge) || !strings.Contains(err.Error(), "tar headers and padding") {
+		t.Fatalf("one byte over: got %v, want ErrCapsuleTooLarge naming the tar framing", err)
 	}
 }
