@@ -20,6 +20,7 @@ identity grants, transactions, per-change audits and recovery-client wiring.
 - `--check` is a product obligation to inspect without writes; advertising it requires tests.
 - Created/present/pending reports describe observed state. Pending cannot be counted as ready.
 - Socket parents must be private and owned; never replace a live socket or an ordinary file.
+- Shared bundle validation returns safe `Refusal` errors; products can opt in for their own fixed messages. Only explicit `Refusal` errors carry fixed public-safe reasons to the CLI (at most 512 bytes, no controls). Arbitrary callback errors stay redacted; never wrap secret-bearing errors as a refusal.
 - Products supply the mutation and restart callbacks. No public HTTP setup route is exposed.
 - Keep this package standard-library-only beyond imports inside ky-primitives.
 - Preparation is explicit: `ParsePreparation` accepts `--stage`; legacy `Parse` refuses it.
