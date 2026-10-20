@@ -3,6 +3,7 @@ package applysetup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,5 +137,28 @@ func TestLocalSetupRefusesNoncanonicalSocketPaths(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 		t.Fatal("refused socket path created directories")
+	}
+}
+
+func TestLocalSafeRefusal(t *testing.T) {
+	socket := filepath.Join(shortDir(t), "setup.sock")
+	for _, reason := range []string{"SSO issuer differs from installer configuration", "unsafe\nterminal", strings.Repeat("x", 513)} {
+		closeServer, err := StartLocal(context.Background(), socket, func(context.Context, []byte, bool) (Report, error) {
+			return Report{}, fmt.Errorf("internal context: %w", &Refusal{Reason: reason})
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = CallLocal(context.Background(), socket, nil, true)
+		closeServer()
+		if err == nil {
+			t.Fatal("refusal succeeded")
+		}
+		if validReason(reason) && !strings.Contains(err.Error(), reason) {
+			t.Fatal(err)
+		}
+		if !validReason(reason) && strings.Contains(err.Error(), reason) {
+			t.Fatal("unsafe reason leaked")
+		}
 	}
 }

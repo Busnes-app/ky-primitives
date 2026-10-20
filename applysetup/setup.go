@@ -4,7 +4,6 @@ package applysetup
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"io"
 	"net/url"
@@ -49,7 +48,7 @@ func parse(args []string, preparation bool) (Options, error) {
 		f.BoolVar(&o.Stage, "stage", false, "prepare immutable secret-free metadata from stdin")
 	}
 	if f.Parse(args) != nil || f.NArg() != 0 || o.Capabilities && (o.File != "" || o.Check || o.Restart || o.Stage) || o.Restart && (o.File != "" || o.Check || o.Stage) || !o.Capabilities && !o.Restart && !filepath.IsAbs(o.File) {
-		return o, errors.New("apply-setup requires --file ABSOLUTE-PATH [--check], --capabilities, or --restart")
+		return o, &Refusal{Reason: "apply-setup requires --file ABSOLUTE-PATH [--check], --capabilities, or --restart"}
 	}
 	return o, nil
 }
@@ -67,18 +66,18 @@ func WriteCapabilities(out io.Writer, service string, features ...string) error 
 func Decode(file string, dest any) error {
 	raw, err := keyfile.ReadPrivate(file, MaxBundleBytes)
 	if err != nil {
-		return errors.New("setup bundle must be a bounded private container-owned regular file")
+		return &Refusal{Reason: "setup bundle must be a bounded private container-owned regular file"}
 	}
 	return DecodeRaw(raw, dest)
 }
 func Secret(file string) (string, error) {
 	raw, err := keyfile.ReadPrivate(file, MaxSecretBytes)
 	if err != nil {
-		return "", errors.New("setup credential requires a bounded private container-owned regular file")
+		return "", &Refusal{Reason: "setup credential requires a bounded private container-owned regular file"}
 	}
 	secret := strings.TrimSuffix(string(raw), "\n")
 	if secret == "" || strings.ContainsAny(secret, "\x00\r\n") {
-		return "", errors.New("invalid setup credential file")
+		return "", &Refusal{Reason: "invalid setup credential file"}
 	}
 	return secret, nil
 }
@@ -128,46 +127,46 @@ func HTTPS(s string) bool {
 }
 func (c Common) Validate(service string, callbackPath string) error {
 	if c.Schema != Schema || c.Service != service || !setupID.MatchString(c.SetupID) {
-		return errors.New("setup schema, service or stable setupId is invalid")
+		return &Refusal{Reason: "setup schema, service or stable setupId is invalid"}
 	}
 	if s := c.SSO; s != nil {
 		if !HTTPS(s.IssuerURL) || !Identifier(s.ClientID) || !HTTPS(s.RedirectURI) || !filepath.IsAbs(s.ClientSecretFile) {
-			return errors.New("setup SSO requires HTTPS URLs, client ID and an absolute credential path")
+			return &Refusal{Reason: "setup SSO requires HTTPS URLs, client ID and an absolute credential path"}
 		}
 		u, _ := url.Parse(s.RedirectURI)
 		if callbackPath != "" && u.Path != callbackPath {
-			return errors.New("setup SSO redirect does not match this product's callback path")
+			return &Refusal{Reason: "setup SSO redirect does not match this product's callback path"}
 		}
 		for _, file := range []string{s.DirectorySecretFile, s.SCIMTokenFile} {
 			if file != "" && !filepath.IsAbs(file) {
-				return errors.New("setup SSO credential paths must be absolute")
+				return &Refusal{Reason: "setup SSO credential paths must be absolute"}
 			}
 		}
 	}
 	if len(c.Admins) > 16 || len(c.Everyday) > 16 {
-		return errors.New("setup accepts at most 16 identities of each kind")
+		return &Refusal{Reason: "setup accepts at most 16 identities of each kind"}
 	}
 	names := map[string]bool{}
 	subjects := map[[2]string]bool{}
 	for _, list := range [][]Identity{c.Admins, c.Everyday} {
 		for _, id := range list {
 			if !HTTPS(id.Issuer) || !Identifier(id.Subject) || !Identifier(id.Username) || c.SSO != nil && id.Issuer != c.SSO.IssuerURL {
-				return errors.New("setup identity requires exact issuer, subject and username")
+				return &Refusal{Reason: "setup identity requires exact issuer, subject and username"}
 			}
 			if id.Email != "" && (!Identifier(id.Email) || len(id.Email) > 255) {
-				return errors.New("setup identity email is invalid")
+				return &Refusal{Reason: "setup identity email is invalid"}
 			}
 			key := [2]string{id.Issuer, id.Subject}
 			name := strings.ToLower(id.Username)
 			if subjects[key] || names[name] {
-				return errors.New("setup identities must be distinct, including administrator and everyday accounts")
+				return &Refusal{Reason: "setup identities must be distinct, including administrator and everyday accounts"}
 			}
 			subjects[key], names[name] = true, true
 		}
 	}
 	if b := c.Backup; b != nil {
 		if b.Directory != "" && !filepath.IsAbs(b.Directory) || b.Keep < 0 || b.Keep > 1000 {
-			return errors.New("setup backup directory or retention is invalid")
+			return &Refusal{Reason: "setup backup directory or retention is invalid"}
 		}
 		if b.Interval != "" {
 			if _, err := Interval(b.Interval); err != nil {
@@ -176,7 +175,7 @@ func (c Common) Validate(service string, callbackPath string) error {
 		}
 		if r := b.Recovery; r != nil {
 			if !HTTPS(r.URL) || !filepath.IsAbs(r.PairingCodeFile) {
-				return errors.New("setup recovery requires HTTPS and an absolute pairing-code path")
+				return &Refusal{Reason: "setup recovery requires HTTPS and an absolute pairing-code path"}
 			}
 		}
 	}
@@ -185,7 +184,7 @@ func (c Common) Validate(service string, callbackPath string) error {
 func Interval(raw string) (time.Duration, error) {
 	d, err := time.ParseDuration(raw)
 	if err != nil || d < 0 || d%time.Second != 0 || d != 0 && (d < 15*time.Minute || d > 365*24*time.Hour) {
-		return 0, errors.New("setup backup interval must be off (0) or 15 minutes through one year in whole seconds")
+		return 0, &Refusal{Reason: "setup backup interval must be off (0) or 15 minutes through one year in whole seconds"}
 	}
 	return d, nil
 }

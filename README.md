@@ -965,6 +965,10 @@ common SSO/identity/backup inputs, capability discovery and bounded report shape
 `keyfile.ReadPrivate` reads opaque private files through the same verified descriptor as
 key loading. Products retain their own transactions, audited grants, conflict handling,
 configuration activation and read-only checks; this package never changes a product.
+A callback can return `&applysetup.Refusal{Reason: "fixed safe explanation"}` to
+show an actionable reason in `CallLocal` CLI errors. Reasons must be fixed safe text,
+at most 512 bytes without controls; ordinary errors remain redacted. Never expose
+credentials, input values or database errors this way.
 
 Products may opt into `ParsePreparation` to accept `--stage` with bounded secret-free
 stdin metadata; legacy `Parse` refuses that flag. Strictly decode and validate the

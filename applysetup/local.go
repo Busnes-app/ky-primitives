@@ -12,8 +12,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // StartLocal exposes setup only over a private filesystem socket. The product callback
@@ -86,8 +88,13 @@ func StartLocal(ctx context.Context, socket string, apply func(context.Context, 
 		callCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		report, err := apply(callCtx, raw, r.URL.RawQuery == "check=true")
-		if err != nil { // Keep arbitrary product/database errors out of the transport.
-			http.Error(w, "setup refused; check product configuration locally", 409)
+		if err != nil { // Only an explicitly safe product refusal may cross this boundary.
+			message := "setup refused; check product configuration locally"
+			var refusal *Refusal
+			if errors.As(err, &refusal) && validReason(refusal.Reason) {
+				message = refusal.Reason
+			}
+			http.Error(w, message, 409)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -142,7 +149,7 @@ func DecodeRaw(raw []byte, dest any) error {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if d.Decode(dest) != nil || d.Decode(new(any)) != io.EOF {
-		return errors.New("invalid setup JSON")
+		return &Refusal{Reason: "invalid setup JSON"}
 	}
 	return nil
 }
@@ -172,6 +179,11 @@ func CallLocal(ctx context.Context, socket string, raw []byte, check bool) (Repo
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		body, readErr := io.ReadAll(io.LimitReader(res.Body, 513))
+		reason := strings.TrimSuffix(string(body), "\n")
+		if readErr == nil && res.StatusCode == http.StatusConflict && validReason(reason) {
+			return Report{}, fmt.Errorf("product setup refused: %s", reason)
+		}
 		return Report{}, errors.New("product setup refused or is busy")
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, MaxBundleBytes+1))
@@ -200,4 +212,13 @@ func RequestRestart(ctx context.Context, socket string) error {
 		return errors.New("product activation refused")
 	}
 	return nil
+}
+
+// Refusal carries a fixed, public-safe explanation chosen by the product. Never
+// put request values, credentials or a database error into Reason.
+type Refusal struct{ Reason string }
+
+func (r *Refusal) Error() string { return r.Reason }
+func validReason(reason string) bool {
+	return reason != "" && len(reason) <= 512 && strings.TrimSpace(reason) == reason && !strings.ContainsFunc(reason, unicode.IsControl)
 }
