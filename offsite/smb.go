@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,7 +41,16 @@ func ParseSMBEndpoint(endpoint, share, dir string) (addr, outShare, outDir strin
 		return "", "", "", errors.New("offsite: SMB endpoint requires a host")
 	}
 	if _, _, splitErr := net.SplitHostPort(addr); splitErr != nil {
-		addr = net.JoinHostPort(strings.Trim(addr, "[]"), "445")
+		if strings.HasPrefix(addr, "[") && strings.HasSuffix(addr, "]") {
+			addr = addr[1 : len(addr)-1]
+		}
+		addr = net.JoinHostPort(addr, "445")
+	}
+	// A stray bracket ("0]0", "host]") survives the default port and yields an
+	// address the dialer and URL parser read differently, and ":" has neither
+	// host nor port; refuse anything that is not exactly host:port.
+	if host, port, splitErr := net.SplitHostPort(addr); splitErr != nil || host == "" || !validPort(port) {
+		return "", "", "", fmt.Errorf("offsite: SMB endpoint has an invalid address %q", addr)
 	}
 	if share == "" || strings.ContainsAny(share, "/\\\x00") || share == "." || share == ".." {
 		return "", "", "", errors.New("offsite: SMB endpoint requires a safe share name")
@@ -50,6 +60,12 @@ func ParseSMBEndpoint(endpoint, share, dir string) (addr, outShare, outDir strin
 		return "", "", "", err
 	}
 	return addr, share, dir, nil
+}
+
+// validPort reports whether port is a decimal TCP port from 1 to 65535.
+func validPort(port string) bool {
+	n, err := strconv.ParseUint(port, 10, 16)
+	return err == nil && n > 0
 }
 
 type smbTarget struct {
