@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/cloudsoda/go-smb2"
 )
 
 // ParseSMBEndpoint accepts a bare host, host:port, UNC path, slash path, or
@@ -72,7 +72,7 @@ func (t *smbTarget) mount(ctx context.Context) (*smb2.Share, func(), error) {
 		Negotiator: smb2.Negotiator{RequireMessageSigning: true},
 		Initiator:  &smb2.NTLMInitiator{User: user, Password: t.secret, Domain: domain},
 	}
-	session, err := dialer.DialContext(ctx, conn)
+	session, err := dialer.DialConn(ctx, conn, t.addr)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
