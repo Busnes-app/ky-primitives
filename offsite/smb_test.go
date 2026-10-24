@@ -21,6 +21,8 @@ func TestParseSMBEndpoint(t *testing.T) {
 		{`\\nas.lan\Public\capsules`, "", "", "nas.lan:445"},
 		{"smb://nas.lan/Public/capsules/", "", "", "nas.lan:445"},
 		{"smb://[::1]:1445/Public", "", "capsules", "[::1]:1445"},
+		{"[::1]", "Public", "capsules", "[::1]:445"},
+		{"::1", "Public", "capsules", "[::1]:445"},
 	}
 	for _, tt := range tests {
 		addr, share, dir, err := ParseSMBEndpoint(tt.endpoint, tt.share, tt.dir)
@@ -31,6 +33,13 @@ func TestParseSMBEndpoint(t *testing.T) {
 	for _, endpoint := range []string{"smb://ky:hunter2@nas/Public", "//ky@nas/Public", `smb://CORP\ky:pw@nas/Public`} {
 		if addr, share, dir, err := ParseSMBEndpoint(endpoint, "", ""); err == nil || addr != "" || share != "" || dir != "" {
 			t.Errorf("accepted credential-bearing endpoint %q", endpoint)
+		}
+	}
+	// Found by fuzzing: a stray bracket came back as "0]0:445", which validation
+	// accepted but the dialer could not use, and ":" came back with no host or port.
+	for _, endpoint := range []string{"0]0", "0[0", "nas.lan]", "[nas.lan", "smb://nas]/Public", ":", ":445", "nas.lan:", "nas.lan:0", "nas.lan:65536", "nas.lan:smb"} {
+		if addr, share, dir, err := ParseSMBEndpoint(endpoint, "Public", ""); err == nil || addr != "" || share != "" || dir != "" {
+			t.Errorf("accepted %q as addr=%q", endpoint, addr)
 		}
 	}
 }
