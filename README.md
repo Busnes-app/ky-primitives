@@ -5,6 +5,10 @@ Shared security primitives for the Busness.app suite.
 The `offsite/` directory is a separately versioned nested module. Its transport
 dependencies are not requirements of this root module.
 
+- [Contributing](CONTRIBUTING.md) — how changes land, the test policy and the coding standard.
+- [Verifying releases](docs/VERIFYING-RELEASES.md) — check a module version against this repository and the Go checksum database.
+- [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
+
 The root module's dependency budget is **`golang.org/x/crypto` and the `golang.org/x/sys` it drags in,
 and nothing else.** In that module, everything but `password` is standard-library-only. The rule was "no
 dependencies, ever" so that products with minimal trees could import this for free —
