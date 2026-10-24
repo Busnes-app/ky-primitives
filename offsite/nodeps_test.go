@@ -8,9 +8,9 @@ import (
 )
 
 var allowedModules = map[string]bool{
-	"github.com/hirochachacha/go-smb2": true,
-	"github.com/pkg/sftp":              true,
-	"golang.org/x/crypto":              true,
+	"github.com/cloudsoda/go-smb2": true,
+	"github.com/pkg/sftp":          true,
+	"golang.org/x/crypto":          true,
 }
 
 var moduleLine = regexp.MustCompile(`^([a-zA-Z0-9._~/-]+\.[a-zA-Z0-9._~/-]+)\s+v`)
