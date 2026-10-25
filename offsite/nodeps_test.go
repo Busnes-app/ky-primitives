@@ -8,6 +8,7 @@ import (
 )
 
 var allowedModules = map[string]bool{
+	"github.com/aws/aws-sdk-go-v2": true,
 	"github.com/cloudsoda/go-smb2": true,
 	"github.com/pkg/sftp":          true,
 	"golang.org/x/crypto":          true,

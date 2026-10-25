@@ -60,7 +60,8 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
    Residual risk).
 5. **This module → its dependencies.** The root module may depend only on `golang.org/x/crypto`
    and the `golang.org/x/sys` it needs, and only `password` may import it. `offsite` is a separate
-   module so its SFTP and SMB dependencies reach only products that import it.
+   module so its SFTP, SMB and AWS SigV4 signer (`aws-sdk-go-v2`, no S3 client) dependencies
+   reach only products that import it.
 
 ## Secure design principles applied
 
