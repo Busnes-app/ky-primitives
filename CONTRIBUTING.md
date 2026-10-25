@@ -1,46 +1,57 @@
-# Contributing
+# Contributing to ky-primitives
 
-[Overview](README.md) · [Assurance case](docs/ASSURANCE-CASE.md) · [Verifying releases](docs/VERIFYING-RELEASES.md)
+ky-primitives is the shared security library for the Busnes.app suite — capsule sealing, the recovery client, key handling, and related primitives. A defect here is a defect in every product that imports it, so correctness and conservative changes matter more than convenience.
 
-## How changes land
+## Before contributing
 
-- Open a pull request against `master`. Every change goes through one; `master` is protected.
-- CI (`.github/workflows/ci.yml`) must be green. It builds, vets and race-tests both modules on
-  Linux and macOS with Go 1.26 and the latest stable Go, and runs `govulncheck` on both. The
-  branch ruleset requires the `test` and `vulncheck` jobs; the `offsite` job is not required
-  by the ruleset, so check it yourself before merging an `offsite/` change.
-- Report bugs and propose features in [GitHub issues](https://github.com/Busnes-app/ky-primitives/issues).
-  Report vulnerabilities privately, as the organisation's
-  [security policy](https://github.com/Busnes-app/.github/blob/main/SECURITY.md) explains.
-- A change that may break a consumer: see [README, Contributing](README.md#contributing) for the
-  consumer compatibility workflows and how to run them before merging.
+Read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md),
+the [README](README.md), and any AGENTS.md in the subtree you are about to
+touch. Open an issue before proposing a feature larger than a bug fix or
+documentation change.
 
-## Tests
+Keep changes small, reuse existing code, and fix the shared root cause rather
+than the reported symptom. New non-trivial logic ships with a runnable test or
+self-check.
 
-A change in behaviour comes with a test that fails without it. For a security property, the
-README names the test that pins it; keep that list current. The package rules in
-[AGENTS.md](AGENTS.md) say which tests a change to `oidcverify` or the dependency budget must
-keep passing.
+## Security requirements
 
-Run what CI runs:
+- Validate and narrow inputs at the library's public boundary; inside the boundary, trust the types.
+- Never log keys, seeds, shares, plaintext, or sealed payloads.
+- Changes to crypto, sealing, or the recovery client must preserve the documented wire and container contracts; do not break binding or downgrade algorithms.
+- No product ever holds the recovery private key, a seed, or a share.
+- Do not add telemetry, phone-home, analytics, or unconfigured third-party
+  services.
+- Do not add silent security fallbacks; fail closed with a readable error and a
+  remediation step.
+- Name and document any security trade-off in [SECURITY.md](SECURITY.md) before
+  it merges.
 
-```bash
-go build ./... && go vet ./... && go test -race -count=1 ./...
-(cd offsite && test -z "$(gofmt -l .)" && go build ./... && go vet ./... && go test -race -count=1 ./...)
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-```
+## Verification
 
-## Coding standard
+Run the checks that apply to the files you changed, and the repository's
+full required checks before hand-off. Record the exact commands and their
+results in the pull request.
 
-Contributions follow these style guides. CI enforces the parts a tool can check.
+## AI attribution
 
-| Language | Style guide | Enforced by |
-|---|---|---|
-| Go | [Effective Go](https://go.dev/doc/effective_go) and the [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments) | `go vet ./...` in the `test` job (root module) and the `offsite` job; `gofmt -l` must print nothing in the `offsite` job |
+AI-assisted contributions are welcome; undisclosed ones are not. Disclose
+material AI assistance in the pull request — the tool, what it changed, and what
+you personally ran, read, and verified — and add a commit trailer naming any
+tool that materially contributed. You are the author of the code you submit for
+every purpose, regardless of how it was produced.
 
-The root module's formatting is not checked by CI. Run `gofmt -l .` before you push; it prints
-nothing on `master` today.
+## Pull requests
 
-Beyond what the tools check: the root module stays inside its dependency budget
-(`nodeps_test.go`), packages other than `password` use only the standard library, and comments
-explain why a check exists, as the existing code does.
+Branch off `main` with a focused name, and use a Conventional Commit subject
+(`fix:`, `feat:`, `docs:`, `refactor:`, `test:`, or `chore:`). The pull request
+explains why the change exists, the verification performed, the security impact,
+and any known limitations.
+
+Every pull request gets an adversarial review pass; see
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md#hostile-reviews-are-about-code-never-people)
+for what that is and the boundary it keeps.
+
+## Licence
+
+ky-primitives is licensed under the MIT License. See [LICENSE.txt](LICENSE.txt).
+
