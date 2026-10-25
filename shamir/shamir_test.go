@@ -150,19 +150,68 @@ func TestCombineRejectsTooFewShares(t *testing.T) {
 	}
 }
 
-func TestSplitNeverEmitsShareBelowThreshold(t *testing.T) {
-	// A zero leading coefficient drops the polynomial's degree, so fewer shares than
-	// promised recover the secret. Over this many splits an unguarded implementation
-	// emits one with near-certainty.
-	for i := 0; i < 5000; i++ {
-		shares, err := Split([]byte{0x42}, 2, 3)
+// Fewer than threshold shares must leave every value of a secret byte possible. Split
+// once resampled a zero leading coefficient, so threshold-1 shares never interpolated to
+// the true secret byte at x=0 and ruled that value out. Interpolating threshold-1 shares
+// gives secret - c*prod(x_i) for leading coefficient c, so it must hit all 256 values,
+// the secret included.
+func TestBelowThresholdSharesExcludeNoSecretValue(t *testing.T) {
+	const secretByte = 0x42
+	for _, threshold := range []int{2, 3} {
+		shares, err := Split(bytes.Repeat([]byte{secretByte}, 1<<16), threshold, threshold)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, s := range shares {
-			if bytes.Equal(s.Value, []byte{0x42}) {
-				t.Fatalf("split %d: share %d equals the secret byte", i, s.Index)
+		guess := shares[0].Value
+		if threshold > 2 {
+			// Combine refuses a set below its declared threshold, so declare it lower.
+			below := make([]Share, threshold-1)
+			for i := range below {
+				below[i] = shares[i]
+				below[i].Threshold = threshold - 1
 			}
+			if guess, err = Combine(below); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var seen [256]bool
+		for _, b := range guess {
+			seen[b] = true
+		}
+		for v, ok := range seen {
+			if !ok {
+				// 2^16 uniform draws miss a value with probability about 256*e^-256.
+				t.Fatalf("threshold %d: %d-share interpolation never yields %#x", threshold, threshold-1, v)
+			}
+		}
+	}
+}
+
+// Shares from the Split that resampled leading coefficients. The format is unchanged,
+// so they must still combine.
+func TestCombinesSharesFromResamplingSplit(t *testing.T) {
+	cards := []string{
+		"ky2-3-137ae1b44e57c89d38dc887bf832efeb-1-f6cb04aa3d943ac63ffeb6ab830c3998b58c4710eb4170eb710e82ead9972257-a674",
+		"ky2-3-137ae1b44e57c89d38dc887bf832efeb-2-9470417ab13f8266e3ce624d71f494fae9c5467809858011481ee9e6cbb3b02c-ae31",
+		"ky2-3-137ae1b44e57c89d38dc887bf832efeb-3-2ffa1684c9f995eb9969f9d6c3ca9e56697f3650dba592995d750d3c2316a14f-d858",
+		"ky2-3-137ae1b44e57c89d38dc887bf832efeb-4-02dbb101a64d5aa1414920914d7b9cb1a78da7f853148878241108781a469c51-f99f",
+		"ky2-3-137ae1b44e57c89d38dc887bf832efeb-5-b951e6ffde8b4d2c3beebb0aff45961d2737d7d081349af0317aeca2f2e38d32-c863",
+	}
+	var all []Share
+	for _, c := range cards {
+		s, err := ParseShare(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, s)
+	}
+	for _, sub := range [][]byte{{1, 2, 3}, {1, 3, 5}, {2, 4, 5}, {3, 4, 5}, {1, 2, 3, 4, 5}} {
+		got, err := Combine(pick(t, all, sub...))
+		if err != nil {
+			t.Fatalf("%v: %v", sub, err)
+		}
+		if string(got) != secret {
+			t.Fatalf("%v: got %q, want %q", sub, got, secret)
 		}
 	}
 }

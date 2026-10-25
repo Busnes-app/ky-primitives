@@ -183,15 +183,10 @@ func Split(secret []byte, threshold, total int) ([]Share, error) {
 	coefficients := make([]byte, threshold)
 	for byteIndex, secretByte := range secret {
 		coefficients[0] = secretByte
-		// A zero leading coefficient drops the polynomial's degree, so fewer shares than
-		// promised reconstruct that byte. Resampling costs one draw in 256.
-		for {
-			if _, err := rand.Read(coefficients[1:]); err != nil {
-				return nil, fmt.Errorf("shamir: %w", err)
-			}
-			if coefficients[threshold-1] != 0 {
-				break
-			}
+		// Never resample a zero leading coefficient: refusing it rules out one secret
+		// value per byte for anyone holding threshold-1 shares.
+		if _, err := rand.Read(coefficients[1:]); err != nil {
+			return nil, fmt.Errorf("shamir: %w", err)
 		}
 		for i := range shares {
 			shares[i].Value[byteIndex] = evaluate(coefficients, shares[i].Index)
