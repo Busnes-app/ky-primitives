@@ -16,6 +16,11 @@ and disclosure.
 - Capsule sealing binds a container to the pinned recovery public key; a change must preserve that binding and the integrity proof that `capsule.Open` enforces.
 - The recovery client refuses non-HTTPS recovery URLs and, by default, private, loopback, and link-local targets; an explicit opt-in exists for operator LANs with loopback still refused.
 - Public functions are a boundary: validate there, and keep error text free of secret material.
+- TOTP refuses decoded secrets below 128 bits; preserve legacy enrolment records
+  and require issuer re-enrolment rather than silently replacing their secrets.
+- SFTP pins do not waive key-size or algorithm policy. For strong offsite
+  cryptography use pinned SFTP or HTTPS S3; SMB/NTLM remains an explicitly chosen
+  compatibility transport with the limitations in [offsite/README.md](offsite/README.md#smb-limitation).
 
 ## Handling requirements
 
