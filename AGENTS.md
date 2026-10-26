@@ -9,6 +9,13 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 
 - Keep the root module's dependency budget and package import boundary enforced by
   `nodeps_test.go`. `oidcverify` remains standard-library-only.
+- `totp.Code` and `totp.Validate` refuse decoded secrets below 16 bytes; generated
+  secrets stay 20 bytes. Callers preserve weak legacy records and require issuer
+  re-enrolment rather than rewriting or dropping them.
+- `offsite` SFTP uses only supported SSH algorithms, RSA keys of at least 2048 bits
+  and non-SHA-1 RSA authentication/certificate signatures; host pins never waive
+  key strength. SMB remains an explicit compatibility destination outside the
+  strong-cryptography profile documented in `offsite/README.md`.
 - `applysetup` owns shared installer boundaries and opt-in immutable Linux metadata
   staging; products retain envelope validation, credential generation and native setup.
 - `oidcverify.VerifyLogout` returns logout-only claims. Share signature/JWKS verification

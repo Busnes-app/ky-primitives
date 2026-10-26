@@ -150,6 +150,38 @@ func TestValidateHandlesTheEpochBoundary(t *testing.T) {
 	}
 }
 
+func TestRejectsUndersizedSecrets(t *testing.T) {
+	at := time.Unix(5*Period, 0)
+	// Independently calculated RFC 4226 values for the first 1, 13 and 15 bytes of
+	// its published test key. A matching code must not make a short key acceptable.
+	for _, tc := range []struct{ secret, code string }{
+		{"GE", "733789"},
+		{"GEZDGNBVGY3TQOJQGEZDG", "731718"},
+		{"GEZDGNBVGY3TQOJQGEZDGNBV", "046607"},
+	} {
+		if _, err := Code(tc.secret, at); err == nil {
+			t.Errorf("Code accepted an undersized secret")
+		}
+		if _, ok := Validate(tc.secret, tc.code, at); ok {
+			t.Errorf("Validate accepted a matching code under an undersized secret")
+		}
+	}
+}
+
+func TestMinimumSecretMatchesRFC4226(t *testing.T) {
+	// RFC 4226 section 4 requires at least 128 bits; this is its test key's
+	// first 16 bytes, with the counter-5 value calculated independently.
+	const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY"
+	at := time.Unix(5*Period, 0)
+	code, err := Code(secret, at)
+	if err != nil || code != "715195" {
+		t.Fatalf("Code = %q, %v; want 715195", code, err)
+	}
+	if counter, ok := Validate(secret, code, at); !ok || counter != 5 {
+		t.Fatalf("Validate = %d, %v; want 5, true", counter, ok)
+	}
+}
+
 func TestGenerateSecretIsUsableAndRandom(t *testing.T) {
 	a, err := GenerateSecret()
 	if err != nil {

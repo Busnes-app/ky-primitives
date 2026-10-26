@@ -94,7 +94,8 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 | Algorithm confusion and unsigned tokens (CWE-347) | RS256 only, checked before any key work; non-RSA JWKS entries ignored | `oidcverify/oidcverify.go` (`header.Alg != "RS256"`), `TestVerifyRefusesAlgorithmConfusionAndBadSignatures` |
 | Forged or replayed sync events (CWE-294) | HMAC-SHA256 over timestamp, type, ID and body hash; constant-time compare; time window; replay guard | `syncauth/syncauth.go` (`hmac.Equal`), `TestVerifyBindsEveryField`, `FuzzVerify` |
 | Credential sent to a redirect target or over plain HTTP | JWKS and SCIM clients require `https` and refuse redirects; the SCIM bearer token is redacted from error text | `oidcverify/oidcverify.go` (`CheckRedirect`), `scim/client.go` (`CheckRedirect`), `TestRedirectIsRefusedAndTokenNotReplayed`, `TestTokenIsRedactedFromErrorDetail` |
-| SFTP man-in-the-middle | Host key must match a pinned SHA-256 fingerprint; with no pin, the connection fails and reports the fingerprint | `offsite/sftp.go` (`HostKeyCallback`) |
+| SFTP man-in-the-middle or legacy cryptography | Pinned SHA-256 host fingerprint, supported SSH algorithms, minimum key sizes and SHA-2 RSA authentication; an undersized key is refused even when pinned | `offsite/sftp.go` (`HostKeyCallback`, `strongSFTPKey`), `offsite/sftp_policy_test.go` |
+| Undersized imported TOTP secret | Code generation and validation refuse secrets below RFC 4226's 128-bit minimum, without rewriting stored enrolments | `totp/totp.go`, `TestRejectsUndersizedSecrets` |
 | SMB downgrade | Message signing required; SMB1 never negotiated | `offsite/smb.go` (`RequireMessageSigning: true`) |
 | Weak or predictable randomness (CWE-338) | `crypto/rand` for salts, Shamir coefficients, set IDs, recovery codes and generated keys; a `crypto/rand` error is never discarded when generating a key | `shamir/shamir.go`, `recoverycode/recoverycode.go`, `keyfile/keyfile.go` (`cryptoRandRead`), `password/password.go` |
 | Secret-dependent timing in Shamir | GF(2^8) multiply and inverse are branch-free and table-free | `shamir/shamir.go` (`mul`, `inverse`) |
@@ -111,7 +112,9 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 - **The recovery private key cannot be erased from memory in Go.** The ceremony host must run
   with swap off and core dumps disabled, and be destroyed afterwards (README, `recoverykey`).
 - **SMB can accept an unsigned guest session** that `go-smb2` lets a server grant. Use SMB only
-  on a trusted network (offsite/README.md, "SMB limitation").
+  on a trusted network (offsite/README.md, "SMB limitation"). Its NTLMv2 compatibility
+  path also uses MD4/MD5-derived authentication and RC4 session-key exchange. The
+  strong-cryptography profile selects pinned SFTP or HTTPS S3 instead of SMB.
 - **The S3 endpoint override accepts `http://`** (`offsite/s3.go`, `newS3Target`), for local
   MinIO. SigV4 does not send the secret key, but objects and signed requests then travel
   unencrypted, and a network attacker can drop or replay them. Products send encrypted

@@ -531,9 +531,15 @@ RFC 6238 one-time passwords. Pinned to the published RFC 4226 Appendix D vectors
 construction is checked against a document rather than against itself.
 
 All four implementations in the suite agreed on the arithmetic — HMAC-SHA1, 20-byte secret,
-6 digits, 30-second period — so **enrolled secrets stay valid across a migration onto this
-one**. They disagreed on everything around it, and two of those differences outlive the
-request.
+6 digits, 30-second period — so their generated enrolments stay valid across a migration
+onto this one. `Code` and `Validate` refuse decoded secrets shorter than 16 bytes (128 bits),
+the minimum in RFC 4226 section 4; `GenerateSecret` continues to generate 20 bytes.
+An imported undersized secret must be replaced by re-enrolling with its issuer. The library
+does not rewrite a secret or delete a stored enrolment. Applications must preserve such
+records and explain the refusal rather than dropping them while loading a vault.
+
+The implementations disagreed on everything around the arithmetic, and two of those
+differences outlive the request.
 
 `ky_server_base` and `gridlock-server` build the enrolment URI by interpolation:
 
