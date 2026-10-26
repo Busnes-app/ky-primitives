@@ -16,6 +16,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   and non-SHA-1 RSA authentication/certificate signatures; host pins never waive
   key strength. SMB remains an explicit compatibility destination outside the
   strong-cryptography profile documented in `offsite/README.md`.
+- Before a root or offsite module tag, update `CHANGELOG.md` with the released
+  changes, upgrade/format impact, migration steps and known vulnerability IDs.
+  Keep the two version streams and unpublished source changes separate.
 - `applysetup` owns shared installer boundaries and opt-in immutable Linux metadata
   staging; products retain envelope validation, credential generation and native setup.
 - `oidcverify.VerifyLogout` returns logout-only claims. Share signature/JWKS verification
