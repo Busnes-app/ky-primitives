@@ -1,5 +1,7 @@
 # ky-primitives
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15936/badge)](https://www.bestpractices.dev/projects/15936)
+
 Shared security primitives for the Busness.app suite.
 
 The `offsite/` directory is a separately versioned nested module. Its transport
