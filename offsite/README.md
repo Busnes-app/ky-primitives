@@ -61,6 +61,9 @@ limitation.
 
 ## Release
 
+See the [offsite release notes](../CHANGELOG.md#offsite-module) for changes and
+upgrade impact; root-module versions do not select this module's version.
+
 This nested module uses namespaced repository tags such as `offsite/v0.1.0`:
 
 ```sh
