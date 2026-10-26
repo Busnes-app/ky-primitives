@@ -3,6 +3,7 @@ package offsite
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/fips140"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/pem"
@@ -123,6 +124,14 @@ func TestSFTPCertificateAuthorityPolicy(t *testing.T) {
 			}
 			cert := &ssh.Certificate{Key: host.PublicKey(), CertType: ssh.HostCert, ValidPrincipals: []string{"127.0.0.1"}, ValidBefore: ssh.CertTimeInfinity}
 			if err := cert.SignCert(rand.Reader, authority); err != nil {
+				// In this runtime mode x/crypto refuses the legacy signature even
+				// while creating the adversarial fixture. The default-mode suite
+				// still proves that our pinned-host handshake refuses that cert.
+				if fips140.Enabled() && tc.algorithm == ssh.KeyAlgoRSA &&
+					strings.Contains(err.Error(), "not allowed in FIPS 140 mode") {
+					t.Logf("runtime refused the SHA-1 certificate fixture: %v", err)
+					return
+				}
 				t.Fatal(err)
 			}
 			certSigner, err := ssh.NewCertSigner(cert, host)

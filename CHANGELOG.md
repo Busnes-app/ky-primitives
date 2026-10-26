@@ -13,6 +13,12 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root/offsite: document the supported strong-key/TLS process configuration and
+  run both modules' race suites in that mode. A real-handshake regression checks
+  certificate-chain key floors while preserving ordinary trust/hostname checks.
+  The library does not change an embedding application's runtime environment:
+  operators enable the documented profile and verify each product's extra
+  integrations. Capsule formats, credentials and retained keys are unchanged.
 - Root: Shamir splitting now samples every polynomial coefficient uniformly,
   including zero, instead of conditioning the leading coefficient to be nonzero.
   This restores the intended share distribution without changing `ky2` encoding

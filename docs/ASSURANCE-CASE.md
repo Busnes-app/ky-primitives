@@ -1,6 +1,6 @@
 # Assurance case
 
-[Overview](../README.md) · [Verifying releases](VERIFYING-RELEASES.md) · [Contributing](../CONTRIBUTING.md)
+[Overview](../README.md) · [Verifying releases](VERIFYING-RELEASES.md) · [Contributing](../CONTRIBUTING.md) · [Strong configuration](STRONG-CRYPTO.md)
 
 This is the argument that ky-primitives meets its security requirements: what it protects,
 from whom, where the trust boundaries are, and why the design and the code hold at each one.
@@ -96,6 +96,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 | Credential sent to a redirect target or over plain HTTP | JWKS and SCIM clients require `https` and refuse redirects; the SCIM bearer token is redacted from error text | `oidcverify/oidcverify.go` (`CheckRedirect`), `scim/client.go` (`CheckRedirect`), `TestRedirectIsRefusedAndTokenNotReplayed`, `TestTokenIsRedactedFromErrorDetail` |
 | SFTP man-in-the-middle or legacy cryptography | Pinned SHA-256 host fingerprint, supported SSH algorithms, minimum key sizes and SHA-2 RSA authentication; an undersized key is refused even when pinned | `offsite/sftp.go` (`HostKeyCallback`, `strongSFTPKey`), `offsite/sftp_policy_test.go` |
 | Undersized imported TOTP secret | Code generation and validation refuse secrets below RFC 4226's 128-bit minimum, without rewriting stored enrolments | `totp/totp.go`, `TestRejectsUndersizedSecrets` |
+| Undersized HTTPS peer keys | The supported Go process configuration enables runtime TLS filters over the complete verified chain, including supplied roots. Normal hostname/trust checks remain required; insecure/custom bypass clients are outside the profile | `docs/STRONG-CRYPTO.md`, `crypto_profile_test.go` (`TestStrongTLSProfile`) |
 | SMB downgrade | Message signing required; SMB1 never negotiated | `offsite/smb.go` (`RequireMessageSigning: true`) |
 | Weak or predictable randomness (CWE-338) | `crypto/rand` for salts, Shamir coefficients, set IDs, recovery codes and generated keys; a `crypto/rand` error is never discarded when generating a key | `shamir/shamir.go`, `recoverycode/recoverycode.go`, `keyfile/keyfile.go` (`cryptoRandRead`), `password/password.go` |
 | Secret-dependent timing in Shamir | GF(2^8) multiply and inverse are branch-free and table-free | `shamir/shamir.go` (`mul`, `inverse`) |
