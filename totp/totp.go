@@ -38,6 +38,8 @@ const (
 	Digits = 6
 	// secretBytes is the generated secret size, the RFC 4226 recommendation.
 	secretBytes = 20
+	// MinSecretBytes is RFC 4226 section 4's minimum shared-secret size (128 bits).
+	MinSecretBytes = 16
 )
 
 // encoding is base32 without padding: authenticator apps reject the '=' characters.
@@ -68,7 +70,8 @@ func ProvisioningURI(issuer, account, secret string) string {
 	return "otpauth://totp/" + label + "?" + q.Encode()
 }
 
-// Code returns the password for secret at time t.
+// Code returns the password for secret at time t. The decoded secret must contain
+// at least MinSecretBytes; undersized issuer secrets must be replaced by re-enrolment.
 func Code(secret string, t time.Time) (string, error) {
 	return hotp(secret, t.Unix()/Period)
 }
@@ -105,8 +108,8 @@ func hotp(secret string, counter int64) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("totp: secret is not base32: %w", err)
 	}
-	if len(key) == 0 {
-		return "", fmt.Errorf("totp: secret is empty")
+	if len(key) < MinSecretBytes {
+		return "", fmt.Errorf("totp: secret must contain at least %d decoded bytes; re-enrol with the issuer", MinSecretBytes)
 	}
 
 	var buf [8]byte

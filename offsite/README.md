@@ -28,6 +28,17 @@ commonly logged. SFTP never connects successfully without a pinned SHA256 host
 fingerprint. Calling `Test` without a pin returns `UnknownHostKeyError` carrying
 the fingerprint the operator must verify out of band.
 
+SFTP explicitly uses `ssh.SupportedAlgorithms()` for key exchange, ciphers, MACs
+and host signatures. SHA-1 key exchange/signatures, DSA and truncated HMAC-SHA1-96
+are refused, without a legacy-algorithm fallback. RSA host, certificate-authority
+and configured client keys must be at least 2048 bits; supported EC keys must be
+at least 224 bits, and Ed25519 uses its fixed size. Certificate signatures and RSA
+client authentication use supported non-SHA-1 algorithms too. A matching host pin
+does not exempt an undersized key. Replace old server/client keys or update an
+old SSH server before upgrading; compare the new host fingerprint out of band
+and update the pin explicitly. Existing pins and credential records are not
+rewritten automatically.
+
 Object names are relative slash-separated paths. Absolute paths, backslashes,
 empty components, `.` and `..` are rejected for every target. `Get` returns an
 error matching `os.ErrNotExist` only when the object is absent. Callers must
@@ -58,6 +69,15 @@ An impersonating server could swallow uploads while observing the NTLMv2
 exchange. Use SMB only on a trusted network and verify replicas independently.
 A share mounted by the host and addressed with `file://` avoids this library
 limitation.
+
+SMB is an explicitly selected compatibility destination, using NTLMv2 password
+authentication. Its protocol mechanisms include MD4/MD5-derived authentication
+values and RC4 session-key exchange; message signing does not remove those
+limitations. For a strong-cryptography deployment, choose pinned SFTP or HTTPS
+S3 instead of this SMB transport (and keep S3's HTTP endpoint override disabled).
+Where compatibility requires SMB, use a trusted isolated network, a dedicated
+long random password, and verify replica contents independently. Keep capsule
+payloads sealed; this client never makes plaintext backups confidential by itself.
 
 ## Release
 

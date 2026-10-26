@@ -2,12 +2,16 @@ package offsite
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,6 +37,21 @@ func (t *sftpTarget) auth() (ssh.AuthMethod, error) {
 		if err != nil {
 			return nil, fmt.Errorf("offsite: private key: %w", err)
 		}
+		if err := strongSFTPKey(signer.PublicKey()); err != nil {
+			return nil, err
+		}
+		if signer.PublicKey().Type() == ssh.KeyAlgoRSA {
+			// Without an explicit signer policy an older server can request the
+			// ssh-rsa SHA-1 fallback even when transport negotiation is strong.
+			algorithmSigner, ok := signer.(ssh.AlgorithmSigner)
+			if !ok {
+				return nil, fmt.Errorf("offsite: RSA signer does not support SHA-2")
+			}
+			signer, err = ssh.NewSignerWithAlgorithms(algorithmSigner, []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256})
+			if err != nil {
+				return nil, fmt.Errorf("offsite: RSA signing algorithms: %w", err)
+			}
+		}
 		return ssh.PublicKeys(signer), nil
 	}
 	return ssh.Password(t.secret), nil
@@ -43,10 +62,20 @@ func (t *sftpTarget) dial(ctx context.Context) (*sftp.Client, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	algorithms := ssh.SupportedAlgorithms()
 	cfg := &ssh.ClientConfig{
-		User: t.user,
-		Auth: []ssh.AuthMethod{auth},
+		Config: ssh.Config{
+			KeyExchanges: algorithms.KeyExchanges,
+			Ciphers:      algorithms.Ciphers,
+			MACs:         algorithms.MACs,
+		},
+		HostKeyAlgorithms: algorithms.HostKeys,
+		User:              t.user,
+		Auth:              []ssh.AuthMethod{auth},
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			if err := strongSFTPKey(key); err != nil {
+				return err
+			}
 			fingerprint := ssh.FingerprintSHA256(key)
 			if t.hostKey == "" {
 				return &UnknownHostKeyError{Fingerprint: fingerprint}
@@ -76,6 +105,39 @@ func (t *sftpTarget) dial(ctx context.Context) (*sftp.Client, func(), error) {
 		return nil, nil, err
 	}
 	return client, func() { _ = client.Close(); _ = sshClient.Close(); cleanup() }, nil
+}
+
+// strongSFTPKey validates parsed network or configured keys before they can
+// authenticate a peer. A matching pin never exempts an undersized key.
+func strongSFTPKey(key ssh.PublicKey) error {
+	if cert, ok := key.(*ssh.Certificate); ok {
+		if !slices.Contains(ssh.SupportedAlgorithms().PublicKeyAuths, cert.Signature.Format) {
+			return fmt.Errorf("offsite: SSH certificate uses an unsupported signature algorithm")
+		}
+		if err := strongSFTPKey(cert.SignatureKey); err != nil {
+			return err
+		}
+		key = cert.Key
+	}
+	public, ok := key.(ssh.CryptoPublicKey)
+	if !ok {
+		return fmt.Errorf("offsite: unsupported SSH public key type %q", key.Type())
+	}
+	switch public := public.CryptoPublicKey().(type) {
+	case *rsa.PublicKey:
+		if public.N.BitLen() < 2048 {
+			return fmt.Errorf("offsite: RSA SSH keys must be at least 2048 bits")
+		}
+	case *ecdsa.PublicKey:
+		if public.Curve.Params().BitSize < 224 {
+			return fmt.Errorf("offsite: EC SSH keys must be at least 224 bits")
+		}
+	case ed25519.PublicKey:
+		// The SSH parser fixes the key size at 256 bits.
+	default:
+		return fmt.Errorf("offsite: unsupported SSH public key type %q", key.Type())
+	}
+	return nil
 }
 
 func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64) error {

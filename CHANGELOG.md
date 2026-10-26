@@ -21,6 +21,13 @@ Keep unpublished changes separate from tagged releases.
   escaping, rather than the local signer. The target API is unchanged; operators
   should verify their S3-compatible endpoint during adoption.
   [Source change](https://github.com/Busnes-app/ky-primitives/commit/f39c65a).
+- Root: `totp.Code` and `totp.Validate` refuse decoded secrets below 16 bytes
+  (RFC 4226's minimum). Generated secrets are unchanged at 20 bytes. Callers must
+  keep weak legacy records and have users re-enrol rather than rewrite them.
+- Offsite: SFTP refuses SHA-1 key exchange and signatures, DSA, HMAC-SHA1-96 and
+  RSA keys below 2048 bits, with no legacy fallback; a matching host pin does not
+  waive key strength. Replace weak server/client keys or old SSH servers before
+  adopting, then re-verify and re-pin the host fingerprint.
 - Contributor/security documentation, pinned CI actions and live assurance badges
   were added. These changes do not publish a new module version.
 
