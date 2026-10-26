@@ -12,6 +12,7 @@ dependencies are not requirements of this root module.
 - [Verifying releases](docs/VERIFYING-RELEASES.md) — check a module version against this repository and the Go checksum database.
 - [Release notes](CHANGELOG.md) — changes and upgrade impact for every root/offsite module tag.
 - [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
+- [Strong-cryptography configuration](docs/STRONG-CRYPTO.md) — required source/key sizes, verified TLS peer policy and excluded compatibility destinations.
 
 The root module's dependency budget is **`golang.org/x/crypto` and the `golang.org/x/sys` it drags in,
 and nothing else.** In that module, everything but `password` is standard-library-only. The rule was "no

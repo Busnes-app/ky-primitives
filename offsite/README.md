@@ -14,6 +14,11 @@ type Target interface {
 Products keep target records, seal credentials, schedule work, and write audit
 or sync logs themselves.
 
+For the supported key-size and TLS configuration, see the
+[strong-cryptography profile](../docs/STRONG-CRYPTO.md). Its Go process policy
+applies to HTTPS S3; pinned SFTP has its own explicit SSH guards. SMB remains
+outside that profile.
+
 ## Targets
 
 | URL | Credential fields | Notes |

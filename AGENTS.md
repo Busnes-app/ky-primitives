@@ -9,6 +9,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 
 - Keep the root module's dependency budget and package import boundary enforced by
   `nodeps_test.go`. `oidcverify` remains standard-library-only.
+- `docs/STRONG-CRYPTO.md` owns the library's supported key/TLS configuration.
+  Preserve ordinary TLS trust/hostname verification and the existing application
+  formats; do not replace those with a pin-only verifier or claim FIPS certification.
 - `totp.Code` and `totp.Validate` refuse decoded secrets below 16 bytes; generated
   secrets stay 20 bytes. Callers preserve weak legacy records and require issuer
   re-enrolment rather than rewriting or dropping them.
@@ -32,6 +35,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 ## Verification
 
 Use the build, vet, race-test and vulnerability commands in `.github/workflows/ci.yml`.
+Both modules also run fresh race tests with `GODEBUG=fips140=on`. The root
+`TestStrongTLSProfile` uses separate processes and actual verified TLS handshakes
+to check the configured certificate-chain floors alongside accepted modern keys.
 For OIDC changes, run `go test -race ./oidcverify`; keep clock-boundary tests deterministic
 and use signed tokens against the HTTPS JWKS fixture for trust-boundary regressions.
 
