@@ -1,6 +1,6 @@
 # Verifying releases
 
-[Overview](../README.md) · [Assurance case](ASSURANCE-CASE.md) · [Contributing](../CONTRIBUTING.md)
+[Overview](../README.md) · [Release notes](../CHANGELOG.md) · [Assurance case](ASSURANCE-CASE.md) · [Contributing](../CONTRIBUTING.md)
 
 ky-primitives is a Go library. A release is a git tag, and nothing else is published: there
 are no GitHub Releases, no binaries and no container images.

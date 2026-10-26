@@ -9,6 +9,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 
 - Keep the root module's dependency budget and package import boundary enforced by
   `nodeps_test.go`. `oidcverify` remains standard-library-only.
+- Before a root or offsite module tag, update `CHANGELOG.md` with the released
+  changes, upgrade/format impact, migration steps and known vulnerability IDs.
+  Keep the two version streams and unpublished source changes separate.
 - `applysetup` owns shared installer boundaries and opt-in immutable Linux metadata
   staging; products retain envelope validation, credential generation and native setup.
 - `oidcverify.VerifyLogout` returns logout-only claims. Share signature/JWKS verification
