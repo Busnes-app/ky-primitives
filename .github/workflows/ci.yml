@@ -8,9 +8,9 @@ on:
 permissions:
   contents: read
 
-# A newer push to a PR supersedes its run; master runs always finish.
+# Supersede a pull request's older run; every other run gets its own group so none is cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
