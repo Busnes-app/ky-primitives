@@ -2,7 +2,6 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15936/badge)](https://www.bestpractices.dev/projects/15936)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Busnes-app/ky-primitives/badge)](https://scorecard.dev/viewer/?uri=github.com/Busnes-app/ky-primitives)
-[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/ky-primitives/branch/master)](https://octocounts.com/github/Busnes-app/ky-primitives/tree/master)
 
 Shared security primitives for the Busness.app suite.
 
@@ -996,3 +995,9 @@ directories, atomically without replacing retained files. Check creates nothing;
 changed or unsafe input is refused. Other platforms refuse staging. `WritePreparation`
 emits a fixed `ky.setup-preparation/1` created/present receipt, describing metadata only.
 Credentials, accounts and product configuration remain separate native operations.
+
+## License
+
+ky-primitives is released under the [MIT License](LICENSE.txt).
+
+[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/ky-primitives/branch/master)](https://octocounts.com/github/Busnes-app/ky-primitives/tree/master)
