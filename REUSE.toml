@@ -1,0 +1,15 @@
+version = 1
+
+# Everything Busnes.app wrote: code, tests, docs and generated fixtures.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Busnes.app"
+SPDX-License-Identifier = "MIT"
+
+# Copied from Go's crypto/hpke/testdata/hpke-pq.json (draft-ietf-hpke-pq X-Wing vector).
+[[annotations]]
+path = "recoverykey/testdata/xwing-vector.json"
+precedence = "override"
+SPDX-FileCopyrightText = "The Go Authors"
+SPDX-License-Identifier = "BSD-3-Clause"

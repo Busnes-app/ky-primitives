@@ -55,3 +55,8 @@ for what that is and the boundary it keeps.
 
 ky-primitives is licensed under the MIT License. See [LICENSE.txt](LICENSE.txt).
 
+The repository follows the [REUSE](https://reuse.software/) specification: `REUSE.toml`
+names the license and copyright of every file, and `LICENSES/` holds each license text.
+Copied third-party material gets its own `REUSE.toml` entry with its original license and
+copyright. CI runs `reuse lint`.
+

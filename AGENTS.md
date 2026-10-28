@@ -28,6 +28,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   with authentication while retaining separate purpose checks; logout tokens must fail
   `Verify`, `VerifyWithNonce`, and `Middleware`.
 - `recoveryclient.LoadRecoveryKey` validates retained custodian topology at the persistence-read boundary (`2 <= k <= n <= 255`) without repairing missing or corrupt pins/settings.
+- REUSE: `REUSE.toml` names every file's license and copyright; `LICENSES/` holds the
+  texts. Copied third-party files (e.g. `recoverykey/testdata/xwing-vector.json`) keep
+  their original license via an override entry; never relabel them MIT. CI runs `reuse lint`.
 - Receivers own durable replay prevention and session invalidation. Preserve the
   issuer/client/session scope and the leeway-inclusive replay cutoff documented under
   README's Back-channel logout section; verification alone never claims offboarding.
