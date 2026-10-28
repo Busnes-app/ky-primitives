@@ -753,7 +753,19 @@ What it pins, each by a named test:
   `TestIntervalRefusesAStoredValueOutsideTheBound`); the next run counts
   from the last attempt (`TestNextRunCountsFromLastAttempt`).
 - The key pin is write-once and the settings row decides, not the file
-  (`TestStoreRecoveryKeyIsWriteOnce`, `TestLoadRecoveryKeyDetectsSwappedFile`).
+  (`TestStoreRecoveryKeyIsWriteOnce`, `TestLoadRecoveryKeyDetectsSwappedFile`). Pairing a
+  different key is a `*PinnedError` with code `recovery_key_pinned` and both key IDs
+  (`TestPairingADifferentKeyIsRecoveryKeyPinned`).
+- `RepinRecoveryKey` is the only way to a new key, for a KyRecovery rotation or rebuild. The
+  recovery key cannot sign, so the operator is the proof: they type the full ID of the
+  pinned key and of the new key from the new cards, and the product gates the action on an
+  administrator with fresh step-up and never prefills the new ID. The product's audit
+  recorder runs before anything changes and its failure refuses the re-pin
+  (`TestRepinRefusedWithoutConfirmation`, `TestRepinRefusesAForgedKey`,
+  `TestRepinRefusedWhenAuditFails`). The key ID row is written last, so a crash leaves the
+  old pin with nothing sealable; re-running finishes it, or naming the old key rolls it back
+  (`TestRepinInterruptedFailsClosedThenCompletesOrRollsBack`, `TestRepinRerunIsIdempotent`).
+  Capsules already deposited stay sealed to the old key and need the old cards.
 - URLs are HTTPS without credentials, query or fragment; private and carrier-grade NAT
   destinations need `Options.AllowPrivate`; loopback, link-local, multicast, unspecified and
   reserved never pass (`TestValidateURL*`). Redirects are refused (`TestClientRefusesRedirect`).

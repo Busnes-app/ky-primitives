@@ -13,6 +13,12 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root: `recoveryclient.RepinRecoveryKey` moves a product to a new recovery key after
+  KyRecovery rotation, when the operator confirms the full pinned and new key IDs and the
+  product's audit recorder succeeds. `StoreRecoveryKey` now refuses a different key with
+  `*PinnedError` (code `recovery_key_pinned`, both key IDs); it still satisfies
+  `errors.Is(err, fs.ErrExist)`, so existing callers keep working. Products adopt by adding
+  an admin, step-up-gated "Move to a new recovery key" action that calls it.
 - Root/offsite: document the supported strong-key/TLS process configuration and
   run both modules' race suites in that mode. A real-handshake regression checks
   certificate-chain key floors while preserving ordinary trust/hostname checks.
