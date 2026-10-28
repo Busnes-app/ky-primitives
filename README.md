@@ -8,7 +8,7 @@ Shared security primitives for the Busness.app suite.
 The `offsite/` directory is a separately versioned nested module. Its transport
 dependencies are not requirements of this root module.
 
-- [Contributing](CONTRIBUTING.md) — how changes land, the test policy and the coding standard.
+- [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
 - [Verifying releases](docs/VERIFYING-RELEASES.md) — check a module version against this repository and the Go checksum database.
 - [Release notes](CHANGELOG.md) — changes and upgrade impact for every root/offsite module tag.
 - [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
@@ -1001,3 +1001,14 @@ Credentials, accounts and product configuration remain separate native operation
 ky-primitives is released under the [MIT License](LICENSE.txt).
 
 [![OctoCounts](https://api.octocounts.com/badge/Busnes-app/ky-primitives/branch/master)](https://octocounts.com/github/Busnes-app/ky-primitives/tree/master)
+
+## Documentation
+
+- [offsite](offsite/README.md) — the nested module that copies backups to SFTP, S3 or SMB destinations.
+- [Logging policy](logging/LOGGING.md) — the JSON log format every Ky product emits.
+- [Strong cryptography](docs/STRONG-CRYPTO.md) — the supported key and TLS configuration.
+- [Verifying releases](docs/VERIFYING-RELEASES.md) — check a release tag against its source.
+- [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
+- [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
+- [Security policy](SECURITY.md) — how to report a vulnerability privately.
+- [Release notes](CHANGELOG.md) — what changed in each release, and its upgrade impact.
