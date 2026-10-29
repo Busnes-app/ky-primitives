@@ -168,7 +168,7 @@ custodian share/private seed. Do not expect this release to restore old-format
 containers: retain and test the appropriate prior recovery path before upgrading
 any installation that has them. A successful open proves integrity to the key,
 not the sender's identity or backup freshness. The ceremony host's memory cannot
-be reliably erased by Go; follow the ephemeral-host procedure in the README.
+be reliably erased by Go; follow the ephemeral-host procedure in [docs/CAPSULE.md](docs/CAPSULE.md#recoverykey).
 
 ### [v0.3.0 — 2026-09-03](https://github.com/Busnes-app/ky-primitives/tree/v0.3.0)
 

@@ -56,7 +56,7 @@ func TestOpenRejectsWrongKey(t *testing.T) {
 	}
 }
 
-// The README tells a caller to errors.Is a failed Open against ErrCorruptCapsule to tell a
+// docs/CAPSULE.md tells a caller to errors.Is a failed Open against ErrCorruptCapsule to tell a
 // malformed container from a bad key. A wrong key fails at AES-GCM's tag check, which
 // wraps its own error, not ErrCorruptCapsule — pin that half of the distinction here, since
 // it is exactly the kind of thing a refactor reverses silently.

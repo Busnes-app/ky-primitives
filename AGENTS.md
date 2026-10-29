@@ -33,7 +33,7 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   their original license via an override entry; never relabel them MIT. CI runs `reuse lint`.
 - Receivers own durable replay prevention and session invalidation. Preserve the
   issuer/client/session scope and the leeway-inclusive replay cutoff documented under
-  README's Back-channel logout section; verification alone never claims offboarding.
+  the Back-channel logout section of [docs/IDENTITY.md](docs/IDENTITY.md#back-channel-logout); verification alone never claims offboarding.
 
 ## Verification
 
