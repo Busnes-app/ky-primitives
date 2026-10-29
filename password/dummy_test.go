@@ -10,7 +10,7 @@ func TestDummyVerifyDoesNotPanic(t *testing.T) {
 	DummyVerify()
 }
 
-// The README's timing claim — a missing account does not answer faster than a wrong
+// docs/CREDENTIALS.md's timing claim — a missing account does not answer faster than a wrong
 // password — is a structural property, not something a wall-clock test can safely pin: on
 // a loaded CI box a timing assertion flakes, and a flaky test guarding a security property
 // gets muted, which is worse than no test. So this checks the two facts that make the

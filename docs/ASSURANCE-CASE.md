@@ -4,7 +4,7 @@
 
 This is the argument that ky-primitives meets its security requirements: what it protects,
 from whom, where the trust boundaries are, and why the design and the code hold at each one.
-The detailed contract of each package is in [README.md](../README.md) and
+The detailed contract of each package is in the pages listed under [Packages](../README.md#packages) and
 [offsite/README.md](../offsite/README.md); this page ties them together and points at the
 evidence. Paths are relative to the repository root.
 
@@ -42,8 +42,8 @@ documented.
 | Custodian error | Type a share wrong, reuse one, mix two kits | (not hostile) get a wrong key without being told |
 
 Out of scope: an attacker who runs code inside the importing process, and a product that
-ignores this library's documented contract (for example skipping `capsule` manifest checks the
-README tells it to make). Durable replay storage and session invalidation belong to the
+ignores this library's documented contract (for example skipping `capsule` manifest checks
+[CAPSULE.md](CAPSULE.md#capsule) tells it to make). Durable replay storage and session invalidation belong to the
 receiving product (see [AGENTS.md](../AGENTS.md)).
 
 ## Trust boundaries
@@ -71,7 +71,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 - **Economy of mechanism.** The standard library provides HPKE, HKDF, PBKDF2, HMAC and RSA; the
   root module's only third-party code is Argon2 from `golang.org/x/crypto`.
 - **Least common mechanism.** One implementation of each primitive replaces the suite's
-  divergent copies; the README records each copy's flaw.
+  divergent copies; the package pages record each copy's flaw.
 - **Complete mediation.** `oidcverify` checks `alg`, `iss`, `aud`, `exp` and `kid` on every
   token; `syncauth` binds the timestamp, type, event ID and body hash into every signature.
 - **Separation of privilege.** The recovery key exists only as Shamir shares held by different
@@ -111,7 +111,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 ## Residual risk
 
 - **The recovery private key cannot be erased from memory in Go.** The ceremony host must run
-  with swap off and core dumps disabled, and be destroyed afterwards (README, `recoverykey`).
+  with swap off and core dumps disabled, and be destroyed afterwards ([CAPSULE.md](CAPSULE.md#recoverykey)).
 - **SMB can accept an unsigned guest session** that `go-smb2` lets a server grant. Use SMB only
   on a trusted network (offsite/README.md, "SMB limitation"). Its NTLMv2 compatibility
   path also uses MD4/MD5-derived authentication and RC4 session-key exchange. The
@@ -121,7 +121,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
   unencrypted, and a network attacker can drop or replay them. Products send encrypted
   capsules, and should not configure a plain-HTTP endpoint across an untrusted network.
 - **`DummyVerify` does not hide account existence under load**: `ErrBusy` returns without
-  deriving (README, `password`).
+  deriving ([CREDENTIALS.md](CREDENTIALS.md#password)).
 - **Replay protection for back-channel logout is the receiving product's job**; `oidcverify`
   only verifies.
 - No independent security audit has been done.
@@ -129,7 +129,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 ## Evidence
 
 - **Tests:** every package has tests; CI runs both modules under the race detector on Linux and
-  macOS with Go 1.26 and the latest stable Go. The README names the test that pins each
+  macOS with Go 1.26 and the latest stable Go. The package pages name the test that pins each
   security property.
 - **Fuzzing:** four fuzz targets (`FuzzCombineNeverPanics`, `FuzzParseShareNeverPanics`,
   `FuzzOpenNeverPanics`, `FuzzFieldValuesCannotForgeALine`) run for 10 minutes each every night
