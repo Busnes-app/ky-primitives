@@ -8,7 +8,7 @@ Shared security primitives for the Busness.app suite.
 The `offsite/` directory is a separately versioned nested module. Its transport
 dependencies are not requirements of this root module.
 
-- [Contributing](CONTRIBUTING.md) — how changes land, the test policy and the coding standard.
+- [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
 - [Verifying releases](docs/VERIFYING-RELEASES.md) — check a module version against this repository and the Go checksum database.
 - [Release notes](CHANGELOG.md) — changes and upgrade impact for every root/offsite module tag.
 - [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
@@ -753,7 +753,19 @@ What it pins, each by a named test:
   `TestIntervalRefusesAStoredValueOutsideTheBound`); the next run counts
   from the last attempt (`TestNextRunCountsFromLastAttempt`).
 - The key pin is write-once and the settings row decides, not the file
-  (`TestStoreRecoveryKeyIsWriteOnce`, `TestLoadRecoveryKeyDetectsSwappedFile`).
+  (`TestStoreRecoveryKeyIsWriteOnce`, `TestLoadRecoveryKeyDetectsSwappedFile`). Pairing a
+  different key is a `*PinnedError` with code `recovery_key_pinned` and both key IDs
+  (`TestPairingADifferentKeyIsRecoveryKeyPinned`).
+- `RepinRecoveryKey` is the only way to a new key, for a KyRecovery rotation or rebuild. The
+  recovery key cannot sign, so the operator is the proof: they type the full ID of the
+  pinned key and of the new key from the new cards, and the product gates the action on an
+  administrator with fresh step-up and never prefills the new ID. The product's audit
+  recorder runs before anything changes and its failure refuses the re-pin
+  (`TestRepinRefusedWithoutConfirmation`, `TestRepinRefusesAForgedKey`,
+  `TestRepinRefusedWhenAuditFails`). The key ID row is written last, so a crash leaves the
+  old pin with nothing sealable; re-running finishes it, or naming the old key rolls it back
+  (`TestRepinInterruptedFailsClosedThenCompletesOrRollsBack`, `TestRepinRerunIsIdempotent`).
+  Capsules already deposited stay sealed to the old key and need the old cards.
 - URLs are HTTPS without credentials, query or fragment; private and carrier-grade NAT
   destinations need `Options.AllowPrivate`; loopback, link-local, multicast, unspecified and
   reserved never pass (`TestValidateURL*`). Redirects are refused (`TestClientRefusesRedirect`).
@@ -995,3 +1007,20 @@ directories, atomically without replacing retained files. Check creates nothing;
 changed or unsafe input is refused. Other platforms refuse staging. `WritePreparation`
 emits a fixed `ky.setup-preparation/1` created/present receipt, describing metadata only.
 Credentials, accounts and product configuration remain separate native operations.
+
+## License
+
+ky-primitives is released under the [MIT License](LICENSE.txt).
+
+[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/ky-primitives/branch/master)](https://octocounts.com/github/Busnes-app/ky-primitives/tree/master)
+
+## Documentation
+
+- [offsite](offsite/README.md) — the nested module that copies backups to SFTP, S3 or SMB destinations.
+- [Logging policy](logging/LOGGING.md) — the JSON log format every Ky product emits.
+- [Strong cryptography](docs/STRONG-CRYPTO.md) — the supported key and TLS configuration.
+- [Verifying releases](docs/VERIFYING-RELEASES.md) — check a release tag against its source.
+- [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
+- [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
+- [Security policy](SECURITY.md) — how to report a vulnerability privately.
+- [Release notes](CHANGELOG.md) — what changed in each release, and its upgrade impact.
