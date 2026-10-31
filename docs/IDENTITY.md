@@ -1,4 +1,4 @@
-# Sync signing, OIDC and SCIM
+# Sync signing, OIDC, SCIM and suite directory
 
 [Overview](../README.md) · [Assurance case](ASSURANCE-CASE.md) · [Contributing](../CONTRIBUTING.md)
 
@@ -145,3 +145,30 @@ surfaced capped at an hour and never negative (`TestOversizedSuccessBodyIsRefuse
 that carries a user identifier (`TestTransportErrorsDoNotCarryTheQuery`); the round trip
 against a server that mints unrelated IDs uses those IDs throughout
 (`TestLifecycleAgainstServerMintedIDs`).
+
+## suitedir
+
+The client for KyIdentity's suite directory (contract: KyIdentity-server
+`docs/SUITE-DIRECTORY.md`):
+the apps a user may open, for a cross-app switcher, and a paired app's URL and shared
+syncauth secret, so KyCalendar and KyPost pair without an operator copying either. Called
+server to server with the app's own OAuth client credentials as HTTP Basic.
+
+```go
+dir := &suitedir.Client{Issuer: cfg.IssuerURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret}
+apps, err := dir.Apps(ctx, claims.Subject)   // "" lists every launchable app
+peer, err := dir.Peer(ctx, "kypost")
+if errors.Is(err, suitedir.ErrNoPeer) { /* not paired: use explicit config */ }
+```
+
+The app's own explicit configuration wins over the directory. Nothing is cached; apps
+cache as they need.
+
+Pinned: the issuer must be HTTPS (loopback http for tests), checked before any request
+(`TestInsecureIssuerIsRefusedWithoutARequest`); a redirect is refused and the credentials do
+not follow it (`TestRedirectIsRefusedAndCredentialsNotReplayed`); apps without an id, a name
+or an HTTPS URL are dropped (`TestAppsSendsBasicAuthAndDropsInvalidEntries`); a peer needs
+the requested client, an HTTPS URL and a base64 secret of exactly 32 bytes
+(`TestMalformedBodiesAreErrors`); 401 is `ErrUnauthorized`, 404 `no_peer` is `ErrNoPeer`,
+and any other status is neither (`TestStatusErrors`); bodies are read to 1 MiB
+(`TestOversizeBodyIsRefused`).

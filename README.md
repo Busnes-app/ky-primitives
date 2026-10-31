@@ -56,6 +56,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`syncauth`](docs/IDENTITY.md#syncauth) | One definition of how KySignOn signs a directory-sync event and how a product verifies it. |
 | [`oidcverify`](docs/IDENTITY.md#oidcverify) | Verifies the RS256 tokens KySignOn issues against its JWKS, on the standard library. |
 | [`scim`](docs/IDENTITY.md#scim) | The SCIM 2.0 client KySignOn provisions accounts with, and the RFC 7643 User type it shares with a server. |
+| [`suitedir`](docs/IDENTITY.md#suitedir) | Asks KyIdentity which suite apps a user may open, and for a paired app's URL and shared syncauth secret. |
 
 ## offsite nested module
 
@@ -112,7 +113,7 @@ ky-primitives is released under the [MIT License](LICENSE.txt).
 - [Recovery shares, codes and client](docs/RECOVERY.md) — custodian shares, one-time recovery codes and the product side of the KyRecovery contract. <a id="shamir"></a><a id="recoverycode"></a><a id="recoveryclient"></a>
 - [Audit chain, logging and health](docs/AUDIT-AND-LOGGING.md) — the tamper-evident audit chain, JSON logging and the `/healthz` shape. <a id="auditchain"></a><a id="logging"></a><a id="health"></a>
 - [Passwords, TOTP, key files and derivation](docs/CREDENTIALS.md) — Argon2id password hashing, TOTP, key-file loading and client-side login-secret derivation. <a id="password"></a><a id="totp"></a><a id="keyfile"></a><a id="derive"></a>
-- [Sync signing, OIDC and SCIM](docs/IDENTITY.md) — directory-sync signatures, OIDC token verification and back-channel logout, and the SCIM client. <a id="syncauth"></a><a id="oidcverify"></a><a id="back-channel-logout"></a><a id="scim"></a>
+- [Sync signing, OIDC, SCIM and suite directory](docs/IDENTITY.md) — directory-sync signatures, OIDC token verification and back-channel logout, the SCIM client and the suite directory client. <a id="syncauth"></a><a id="oidcverify"></a><a id="back-channel-logout"></a><a id="scim"></a><a id="suitedir"></a>
 - [Container-local installer setup](docs/INSTALLER-SETUP.md) — `applysetup` bundle decoding, refusals and staged preparation. <a id="container-local-installer-setup"></a>
 - [offsite](offsite/README.md) — the nested module that copies backups to SFTP, S3 or SMB destinations.
 - [Logging policy](logging/LOGGING.md) — the JSON log format every Ky product emits.

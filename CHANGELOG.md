@@ -13,6 +13,8 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root: new `suitedir` package, the client for KyIdentity's suite directory
+  (`/api/suite/apps`, `/api/suite/peer`). Additive; no migration.
 - Root: `recoveryclient.RepinRecoveryKey` moves a product to a new recovery key after
   KyRecovery rotation, when the operator confirms the full pinned and new key IDs and the
   product's audit recorder succeeds. `StoreRecoveryKey` now refuses a different key with
