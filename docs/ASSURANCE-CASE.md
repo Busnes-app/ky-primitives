@@ -55,9 +55,9 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
    share is parsed strictly and bounded before any expensive work.
 3. **Inbound requests → `oidcverify`, `syncauth`.** Signatures and claims are checked before
    the handler sees the request; bodies are read through a size limit.
-4. **This process → remote servers** (`oidcverify` JWKS, `scim`, `offsite`). Each client
-   refuses redirects and requires HTTPS or a pinned key, except the S3 endpoint override (see
-   Residual risk).
+4. **This process → remote servers** (`oidcverify` JWKS, `scim`, `suitedir`, `offsite`). Each
+   client refuses redirects and requires HTTPS or a pinned key, except the S3 endpoint override
+   (see Residual risk) and `suitedir`'s plain HTTP to a loopback IP literal.
 5. **This module → its dependencies.** The root module may depend only on `golang.org/x/crypto`
    and the `golang.org/x/sys` it needs, and only `password` may import it. `offsite` is a separate
    module so its SFTP, SMB and AWS SigV4 signer (`aws-sdk-go-v2`, no S3 client) dependencies
@@ -93,7 +93,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 | Resource exhaustion via stored parameters (CWE-400) | Stored parameters bounded to 8–256 MiB, t≤10, p≤16; derivations share a 256 MiB and 16-lane budget and return `ErrBusy` instead of queuing; PBKDF2 iterations bounded to 100,000–12,000,000 | `password/password.go`, `derive/derive.go` (`MinIterations`, `MaxIterations`, `ErrBusy`) |
 | Algorithm confusion and unsigned tokens (CWE-347) | RS256 only, checked before any key work; non-RSA JWKS entries ignored | `oidcverify/oidcverify.go` (`header.Alg != "RS256"`), `TestVerifyRefusesAlgorithmConfusionAndBadSignatures` |
 | Forged or replayed sync events (CWE-294) | HMAC-SHA256 over timestamp, type, ID and body hash; constant-time compare; time window; replay guard | `syncauth/syncauth.go` (`hmac.Equal`), `TestVerifyBindsEveryField`, `FuzzVerify` |
-| Credential sent to a redirect target or over plain HTTP | JWKS and SCIM clients require `https` and refuse redirects; the SCIM bearer token is redacted from error text | `oidcverify/oidcverify.go` (`CheckRedirect`), `scim/client.go` (`CheckRedirect`), `TestRedirectIsRefusedAndTokenNotReplayed`, `TestTokenIsRedactedFromErrorDetail` |
+| Credential sent to a redirect target or over plain HTTP | JWKS, SCIM and suite directory clients require `https` and refuse redirects; the SCIM bearer token is redacted from error text | `oidcverify/oidcverify.go` (`CheckRedirect`), `scim/client.go` (`CheckRedirect`), `suitedir/client.go` (`CheckRedirect`), `TestRedirectIsRefusedAndTokenNotReplayed`, `TestRedirectIsRefusedAndCredentialsNotReplayed`, `TestTokenIsRedactedFromErrorDetail` |
 | SFTP man-in-the-middle or legacy cryptography | Pinned SHA-256 host fingerprint, supported SSH algorithms, minimum key sizes and SHA-2 RSA authentication; an undersized key is refused even when pinned | `offsite/sftp.go` (`HostKeyCallback`, `strongSFTPKey`), `offsite/sftp_policy_test.go` |
 | Undersized imported TOTP secret | Code generation and validation refuse secrets below RFC 4226's 128-bit minimum, without rewriting stored enrolments | `totp/totp.go`, `TestRejectsUndersizedSecrets` |
 | Undersized HTTPS peer keys | The supported Go process configuration enables runtime TLS filters over the complete verified chain, including supplied roots. Normal hostname/trust checks remain required; insecure/custom bypass clients are outside the profile | `docs/STRONG-CRYPTO.md`, `crypto_profile_test.go` (`TestStrongTLSProfile`) |
@@ -104,7 +104,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 | Key file weakened or replaced | Refuses a file that is not exactly the expected size or is not mode 0600; creation by temp file and `os.Link`, so a race cannot leave a partial key; `Store` never overwrites | `keyfile/keyfile.go` |
 | Audit-log tampering or truncation | HMAC chain with a 32-byte minimum key; an anchor records the last sequence number and hash | `auditchain/auditchain.go` (`minKeyBytes`, `hmac.Equal`) |
 | Log injection (CWE-117) | Control characters and invalid UTF-8 in field values are replaced, and values are capped at 256 bytes, before any handler renders them | `logging/field.go` (`sanitize`), `FuzzFieldValuesCannotForgeALine` |
-| Oversized response bodies | Request and response bodies read through `io.LimitReader` | `syncauth/syncauth.go`, `scim/client.go`, `oidcverify/oidcverify.go` |
+| Oversized response bodies | Request and response bodies read through `io.LimitReader` | `syncauth/syncauth.go`, `scim/client.go`, `suitedir/client.go`, `oidcverify/oidcverify.go` |
 | Vulnerable or unexpected dependencies | Dependency allowlist enforced by tests; `govulncheck` on both modules in CI; Dependabot | `nodeps_test.go` (`TestModuleDependenciesAreAllowlisted`, `TestOnlyPasswordImportsADependency`), `.github/workflows/ci.yml` (`vulncheck`) |
 | Tampered release | Versions are fixed by the Go checksum database | [VERIFYING-RELEASES.md](VERIFYING-RELEASES.md) |
 
