@@ -57,10 +57,11 @@ Local targets resolve every operation through `os.Root`, so a symlink beneath
 the configured directory cannot escape it. SFTP and SMB reserve random
 `.ky-offsite-tmp-*` names for staging; callers cannot address that namespace.
 
-SMB cannot safely replace an existing path because `go-smb2` does not expose
-replace-on-rename. Its `Put` returns `ErrObjectExists` instead of deleting the
-previous replica. Use immutable object names, as capsule and content-addressed
-blob IDs do.
+SMB `Put` returns `ErrObjectExists` when the name already exists instead of
+deleting the previous replica. The check is not atomic: `go-smb2`'s rename always
+replaces, so two concurrent `Put`s of one name both succeed and the later one
+wins. Use immutable object names, as capsule and content-addressed blob IDs do,
+so that same name means same bytes.
 
 SMB object-name components are limited to lowercase ASCII letters, digits,
 dot, underscore, and hyphen. Trailing dots, Windows device names, and `~` are

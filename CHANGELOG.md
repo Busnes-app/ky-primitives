@@ -25,6 +25,12 @@ Keep unpublished changes separate from tagged releases.
   its own digest after a JSON round trip. Pass request-derived text through
   `logging.AuditFields`. A bulk `Replay` of a legacy log holding invalid UTF-8 now fails
   and names the tuple.
+- Root: `capsule.Seal` refuses a file path that is not valid UTF-8; such a capsule
+  sealed fine and then failed every `Open`. `password.Verify` bounds a stored hash's
+  segments and encoded salt/hash before allocating for them.
+- Offsite: an SFTP `Secret` that contains `-----BEGIN ` is always treated as a private
+  key, so a key pasted without its END line fails to parse instead of being sent to the
+  server as a password.
 - Offsite: an unset `Config.Timeout` means five minutes without progress and 24 hours at
   most, instead of five minutes for the whole transfer, so large objects on slow links
   complete. SFTP and SMB move at most 1 MiB per read so progress stays visible, and an

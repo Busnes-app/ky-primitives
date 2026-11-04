@@ -173,18 +173,21 @@ func TestSFTPNeverOffersPEMAsPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret := "\n" + string(pem.EncodeToMemory(block))
-	passwordsMu.Lock()
-	passwords = nil
-	passwordsMu.Unlock()
-	target := &sftpTarget{addr: addr, user: testSFTPUser, secret: secret, dir: t.TempDir(), hostKey: fingerprint, timeout: time.Second}
-	_ = target.Test(context.Background())
-	passwordsMu.Lock()
-	defer passwordsMu.Unlock()
-	for _, password := range passwords {
-		if strings.Contains(password, "PRIVATE KEY") {
-			t.Fatal("private key was offered as a password")
+	full := string(pem.EncodeToMemory(block))
+	// The second is a paste that lost its END line, which pem.Decode cannot read.
+	for _, secret := range []string{"\n" + full, full[:strings.Index(full, "-----END")]} {
+		passwordsMu.Lock()
+		passwords = nil
+		passwordsMu.Unlock()
+		target := &sftpTarget{addr: addr, user: testSFTPUser, secret: secret, dir: t.TempDir(), hostKey: fingerprint, timeout: time.Second}
+		_ = target.Test(context.Background())
+		passwordsMu.Lock()
+		for _, password := range passwords {
+			if strings.Contains(password, "PRIVATE KEY") {
+				t.Error("private key was offered as a password")
+			}
 		}
+		passwordsMu.Unlock()
 	}
 }
 

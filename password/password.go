@@ -451,7 +451,8 @@ func (p Params) Validate() error {
 
 // parse reads a PHC string strictly: every segment must be present and well formed.
 func parse(encoded string) (Params, []byte, []byte, error) {
-	parts := strings.Split(encoded, "$")
+	// SplitN, so a stored hash made of separators cannot allocate a slice per byte.
+	parts := strings.SplitN(encoded, "$", 7)
 	if len(parts) != 6 || parts[0] != "" {
 		return Params{}, nil, nil, fmt.Errorf("%w: %d segments", ErrMalformed, len(parts))
 	}
@@ -483,6 +484,9 @@ func parse(encoded string) (Params, []byte, []byte, error) {
 }
 
 func decode(s string, min int) ([]byte, error) {
+	if len(s) > base64.RawStdEncoding.EncodedLen(maxDecoded) {
+		return nil, fmt.Errorf("%d encoded bytes, want at most %d", len(s), base64.RawStdEncoding.EncodedLen(maxDecoded))
+	}
 	b, err := base64.RawStdEncoding.DecodeString(s)
 	if err != nil {
 		return nil, err

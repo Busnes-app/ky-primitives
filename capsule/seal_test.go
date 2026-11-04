@@ -144,3 +144,13 @@ func TestSealReturnsTheManifestItSealed(t *testing.T) {
 			opened.Threshold, opened.TotalShares, m.Threshold, m.TotalShares)
 	}
 }
+
+// The file list is JSON, which rewrites invalid UTF-8 as U+FFFD: such a path used to seal
+// fine into a capsule that every Open refused.
+func TestSealRefusesAPathThatIsNotValidUTF8(t *testing.T) {
+	priv := testRecoveryKey(t)
+	files := []capsule.File{{Path: "k\xff", Content: []byte("x"), Mode: 0600}}
+	if _, _, err := capsule.Seal("fixture", "0.0.0", files, nil, nil, 2, 3, priv.Public()); err == nil {
+		t.Fatal("Seal accepted a path that is not valid UTF-8")
+	}
+}

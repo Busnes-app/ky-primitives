@@ -292,7 +292,8 @@ func EventFromContext(r *http.Request) (Event, bool) {
 // handler answers anything but 2xx (or panics), Middleware forgets the ID so the sender's
 // retry runs the handler again. A retry that arrives while the first delivery is still
 // running is answered as a duplicate; if that first delivery then fails, the event is lost
-// to that sender, so keep handlers well inside the sender's request timeout.
+// to that sender, so keep handlers well inside the sender's request timeout. Event IDs are
+// unique per sender only: when keyFn serves several senders, give each its own Replay.
 func Middleware(keyFn func(r *http.Request) ([]byte, error), o Options, maxBody int64, onReject func(r *http.Request, err error)) func(http.Handler) http.Handler {
 	if maxBody <= 0 {
 		maxBody = DefaultMaxBody

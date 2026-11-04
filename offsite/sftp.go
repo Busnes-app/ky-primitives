@@ -33,7 +33,9 @@ type sftpTarget struct {
 }
 
 func (t *sftpTarget) auth() (ssh.AuthMethod, error) {
-	if block, _ := pem.Decode([]byte(t.secret)); block != nil {
+	// Anything that looks like key material is a key, even when pem.Decode cannot read it
+	// (a missing END line): sending it as a password would hand the key to the server.
+	if block, _ := pem.Decode([]byte(t.secret)); block != nil || strings.Contains(t.secret, "-----BEGIN ") {
 		signer, err := ssh.ParsePrivateKey([]byte(t.secret))
 		if err != nil {
 			return nil, fmt.Errorf("offsite: private key: %w", err)

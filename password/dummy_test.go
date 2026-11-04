@@ -2,6 +2,8 @@ package password
 
 import (
 	"errors"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,5 +164,26 @@ func TestDummyVerifySurvivesAFullyHeldBudget(t *testing.T) {
 	call("second")
 	if second := dummyHashValue; second != first {
 		t.Error("dummy hash changed between calls: minted twice instead of memoised")
+	}
+}
+
+// A stored hash is attacker-controlled. Rejecting one made of separators, or carrying an
+// oversized salt, must not first allocate many times its size.
+func TestVerifyRejectsOversizedStoredHashesCheaply(t *testing.T) {
+	huge := []string{
+		strings.Repeat("$", 1<<20),
+		"$argon2id$v=19$m=65536,t=3,p=4$" + strings.Repeat("A", 1<<20) + "$" + strings.Repeat("A", 43),
+	}
+	for _, encoded := range huge {
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		before := ms.TotalAlloc
+		if _, err := Verify("pw", encoded); !errors.Is(err, ErrMalformed) {
+			t.Fatalf("got %v, want ErrMalformed", err)
+		}
+		runtime.ReadMemStats(&ms)
+		if grew := ms.TotalAlloc - before; grew > 64<<10 {
+			t.Errorf("rejecting a %d-byte stored hash allocated %d bytes", len(encoded), grew)
+		}
 	}
 }
