@@ -151,3 +151,34 @@ func TestLocalCopiesOfCollidingNamesStaySeparate(t *testing.T) {
 		t.Fatalf("%d files; a neighbour's capsule was pruned", len(entries))
 	}
 }
+
+// A host whose clock ran ahead left copies dated in the future; the new copy has the
+// oldest mtime and used to be the one pruned, while its path was returned as the backup.
+func TestWriteLocalCopyNeverPrunesTheCopyItWrote(t *testing.T) {
+	dir := t.TempDir()
+	future := time.Now().Add(24 * time.Hour)
+	for i, id := range []string{"cap-a", "cap-b"} {
+		p, err := WriteLocalCopy(dir, "Svc", id, []byte("sealed"), 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := future.Add(time.Duration(i) * time.Hour)
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := WriteLocalCopy(dir, "Svc", "cap-c", []byte("sealed"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("the copy just written was pruned: %v", err)
+	}
+	copies, err := ListLocalCopies(dir, "Svc")
+	if err != nil || len(copies) != 2 {
+		t.Fatalf("want 2 copies kept, got %d (%v)", len(copies), err)
+	}
+	if !strings.Contains(copies[0].Name, "cap-b") {
+		t.Fatalf("the newer existing copy should survive, kept %v", copies)
+	}
+}

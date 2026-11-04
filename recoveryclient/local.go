@@ -124,7 +124,17 @@ func WriteLocalCopy(dir, appName, capsuleID string, raw []byte, keep int) (strin
 	if err != nil {
 		return final, err
 	}
-	for _, c := range copies[min(keep, len(copies)):] {
+	// The copy just written always survives: ordering is by mtime, and a clock that ran
+	// ahead before (or a copied-in file) would otherwise sort it last and prune it.
+	kept := 1
+	for _, c := range copies {
+		if c.Name == filepath.Base(final) {
+			continue
+		}
+		if kept < keep {
+			kept++
+			continue
+		}
 		if err := os.Remove(filepath.Join(dir, c.Name)); err != nil && !os.IsNotExist(err) {
 			return final, fmt.Errorf("prune %s: %w", c.Name, err)
 		}
