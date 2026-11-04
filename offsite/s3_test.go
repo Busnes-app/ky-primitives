@@ -192,3 +192,72 @@ func TestS3TargetsDoNotShareSigningKeys(t *testing.T) {
 		t.Fatal("a second target signed with the first target's secret")
 	}
 }
+
+// A non-nil body with ContentLength 0 goes out chunked, which S3 answers with 411.
+func TestS3EmptyPutSendsContentLength(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
+			http.Error(w, "MissingContentLength", http.StatusLengthRequired)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	target, err := Parse(Config{URL: "s3://bucket", S3Endpoint: server.URL, AccessKey: "key", Secret: "secret", Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Put(context.Background(), "empty", strings.NewReader(""), 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With no Timeout the default bounds time without progress, not the whole transfer: an
+// object on a slow link used to be cut off at five minutes on every attempt.
+func TestDefaultBudgetAllowsSlowTransfersAndStopsStalls(t *testing.T) {
+	saved := defaultTransferBudget
+	defaultTransferBudget = 300 * time.Millisecond
+	defer func() { defaultTransferBudget = saved }()
+	stall := make(chan struct{})
+	defer close(stall)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bucket/stalled" {
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			select {
+			case <-stall:
+			case <-r.Context().Done():
+			}
+			return
+		}
+		for i := 0; i < 8; i++ {
+			_, _ = w.Write([]byte("chunk"))
+			w.(http.Flusher).Flush()
+			time.Sleep(100 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+	target, err := Parse(Config{URL: "s3://bucket", S3Endpoint: server.URL, AccessKey: "key", Secret: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := target.Get(context.Background(), "slow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(r)
+	_ = r.Close()
+	if err != nil || len(raw) != 40 {
+		t.Fatalf("slow but steady Get = %d bytes, %v", len(raw), err)
+	}
+	r, err = target.Get(context.Background(), "stalled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err = io.ReadAll(r)
+	_ = r.Close()
+	if err == nil || time.Since(start) > 3*time.Second {
+		t.Fatalf("stalled Get: err %v after %s", err, time.Since(start))
+	}
+}

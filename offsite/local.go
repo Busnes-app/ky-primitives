@@ -83,13 +83,18 @@ func (t *localTarget) Test(ctx context.Context) error {
 }
 
 type contextReader struct {
-	ctx context.Context
-	r   io.Reader
+	ctx   context.Context
+	r     io.Reader
+	touch func() // optional: renews the transfer budget when bytes move
 }
 
 func (r *contextReader) Read(p []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err
 	}
-	return r.r.Read(p)
+	n, err := r.r.Read(p)
+	if n > 0 && r.touch != nil {
+		r.touch()
+	}
+	return n, err
 }

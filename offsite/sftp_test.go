@@ -28,6 +28,13 @@ var (
 
 func startSFTPServer(t *testing.T) (addr, fingerprint string) {
 	t.Helper()
+	return startSFTPServerWith(t, nil)
+}
+
+// startSFTPServerWith serves handlers through the SFTP request server, or the plain
+// filesystem server when handlers is nil.
+func startSFTPServerWith(t *testing.T, handlers *sftp.Handlers) (addr, fingerprint string) {
+	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -57,13 +64,13 @@ func startSFTPServer(t *testing.T) (addr, fingerprint string) {
 			if err != nil {
 				return
 			}
-			go serveSFTP(conn, cfg)
+			go serveSFTP(conn, cfg, handlers)
 		}
 	}()
 	return listener.Addr().String(), ssh.FingerprintSHA256(signer.PublicKey())
 }
 
-func serveSFTP(conn net.Conn, cfg *ssh.ServerConfig) {
+func serveSFTP(conn net.Conn, cfg *ssh.ServerConfig, handlers *sftp.Handlers) {
 	sconn, channels, requests, err := ssh.NewServerConn(conn, cfg)
 	if err != nil {
 		_ = conn.Close()
@@ -82,7 +89,9 @@ func serveSFTP(conn net.Conn, cfg *ssh.ServerConfig) {
 				ok := request.Type == "subsystem" && len(request.Payload) >= 4 && string(request.Payload[4:]) == "sftp"
 				_ = request.Reply(ok, nil)
 				if ok {
-					if server, err := sftp.NewServer(ch); err == nil {
+					if handlers != nil {
+						_ = sftp.NewRequestServer(ch, *handlers).Serve()
+					} else if server, err := sftp.NewServer(ch); err == nil {
 						_ = server.Serve()
 					}
 					return
@@ -206,5 +215,27 @@ func TestSFTPStallHonorsBudget(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("operation took %s", elapsed)
+	}
+}
+
+// noPosixRename is an SFTP filesystem that allows create and write but refuses the
+// posix-rename extension, as some appliance servers do.
+type noPosixRename struct{ sftp.FileCmder }
+
+func (noPosixRename) PosixRename(*sftp.Request) error { return sftp.ErrSSHFxOpUnsupported }
+
+// Test used to write its probe directly, so it passed on a server where every Put then
+// failed at the rename that publishes the object.
+func TestSFTPTestFailsWhenPutCannotPublish(t *testing.T) {
+	h := sftp.InMemHandler()
+	h.FileCmd = noPosixRename{h.FileCmd}
+	addr, fingerprint := startSFTPServerWith(t, &h)
+	target := &sftpTarget{addr: addr, user: testSFTPUser, secret: testSFTPPass, dir: "/vault", hostKey: fingerprint, timeout: 3 * time.Second}
+	ctx := context.Background()
+	if err := target.Put(ctx, "object", strings.NewReader("x"), 1); err == nil {
+		t.Fatal("Put published without posix-rename")
+	}
+	if err := target.Test(ctx); err == nil {
+		t.Fatal("Test passed on a server that refuses every Put")
 	}
 }

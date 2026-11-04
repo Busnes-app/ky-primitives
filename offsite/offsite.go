@@ -15,10 +15,13 @@ import (
 )
 
 const (
-	defaultTransferBudget = 5 * time.Minute
-	pingName              = ".ky-offsite-ping"
-	stagingPrefix         = ".ky-offsite-tmp-"
+	pingName      = ".ky-offsite-ping"
+	stagingPrefix = ".ky-offsite-tmp-"
 )
+
+// defaultTransferBudget is how long a transfer with no Timeout may go without moving a
+// byte. A variable only so tests can shorten it.
+var defaultTransferBudget = 5 * time.Minute
 
 // ErrObjectExists is returned when a backend cannot safely replace an object.
 var ErrObjectExists = errors.New("offsite: object already exists")
@@ -40,7 +43,9 @@ type Config struct {
 	HostKey    string
 	S3Endpoint string
 	S3Region   string
-	Timeout    time.Duration
+	// Timeout is a deadline for each whole transfer. Zero fails a transfer only after
+	// five minutes without progress, so large objects on slow links still complete.
+	Timeout time.Duration
 }
 
 // Parse validates c and constructs its target.
@@ -177,9 +182,16 @@ func cleanPrefix(p string) (string, error) {
 	return cleanName(p)
 }
 
-func budget(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout == 0 {
-		timeout = defaultTransferBudget
+// budget bounds one transfer. An explicit Timeout is a deadline for the whole transfer.
+// The default is a no-progress limit instead, renewed by touch whenever bytes move: a
+// capsule on a slow uplink takes longer than any fixed default, and a stalled peer still
+// fails after defaultTransferBudget.
+func budget(ctx context.Context, timeout time.Duration) (_ context.Context, cancel, touch func()) {
+	if timeout != 0 {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		return ctx, cancel, func() {}
 	}
-	return context.WithTimeout(ctx, timeout)
+	ctx, stop := context.WithCancelCause(ctx)
+	timer := time.AfterFunc(defaultTransferBudget, func() { stop(context.DeadlineExceeded) })
+	return ctx, func() { timer.Stop(); stop(context.Canceled) }, func() { timer.Reset(defaultTransferBudget) }
 }

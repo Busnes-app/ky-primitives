@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,13 +146,19 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
+	return t.put(ctx, client, name, &contextReader{ctx: ctx, r: r, touch: touch})
+}
+
+// put stages and publishes one object over an open session; Put and Test share it so a
+// passing Test means the server accepts the rename every Put depends on.
+func (t *sftpTarget) put(ctx context.Context, client *sftp.Client, name string, r io.Reader) error {
 	if t.dir != "" {
 		if err := client.MkdirAll(t.dir); err != nil {
 			return err
@@ -169,7 +176,7 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, &contextReader{ctx: ctx, r: r}); err != nil {
+	if _, err := io.Copy(f, r); err != nil {
 		_ = f.Close()
 		_ = client.Remove(tmp)
 		return err
@@ -180,7 +187,7 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	}
 	if err := client.PosixRename(tmp, final); err != nil {
 		_ = client.Remove(tmp)
-		return err
+		return fmt.Errorf("offsite: SFTP publish by posix-rename@openssh.com: %w", err)
 	}
 	return nil
 }
@@ -190,7 +197,7 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		cancel()
@@ -205,44 +212,36 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 		}
 		return nil, err
 	}
-	return &sessionReadCloser{ReadCloser: f, cleanup: cleanup, cancel: cancel}, nil
+	return &sessionReadCloser{ReadCloser: f, cleanup: cleanup, cancel: cancel, touch: touch}, nil
 }
 
 func (t *sftpTarget) Test(ctx context.Context) error {
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, _ := budget(ctx, t.timeout)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	if t.dir != "" {
-		if err := client.MkdirAll(t.dir); err != nil {
-			return err
-		}
-	}
-	probe := path.Join(t.dir, pingName)
-	f, err := client.Create(probe)
-	if err != nil {
+	if err := t.put(ctx, client, pingName, &contextReader{ctx: ctx, r: strings.NewReader("ping")}); err != nil {
 		return err
 	}
-	if _, err := f.Write([]byte("ping")); err != nil {
-		_ = f.Close()
-		_ = client.Remove(probe)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = client.Remove(probe)
-		return err
-	}
-	return client.Remove(probe)
+	return client.Remove(path.Join(t.dir, pingName))
 }
 
 type sessionReadCloser struct {
 	io.ReadCloser
-	cleanup func()
-	cancel  context.CancelFunc
-	once    sync.Once
+	cleanup       func()
+	cancel, touch func()
+	once          sync.Once
+}
+
+func (c *sessionReadCloser) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	if n > 0 {
+		c.touch()
+	}
+	return n, err
 }
 
 func (c *sessionReadCloser) Close() (err error) {
