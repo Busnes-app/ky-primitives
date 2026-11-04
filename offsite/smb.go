@@ -107,14 +107,14 @@ func (t *smbTarget) Put(ctx context.Context, name string, r io.Reader, _ int64) 
 	if err != nil {
 		return err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	defer cancel()
 	share, cleanup, err := t.mount(ctx)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return t.put(share, name, &contextReader{ctx: ctx, r: r})
+	return expired(ctx, t.put(share, name, &contextReader{ctx: ctx, r: r, touch: touch}))
 }
 
 // put stages and publishes one object on a mounted share; Put and Test share it so a
@@ -163,7 +163,7 @@ func (t *smbTarget) Get(ctx context.Context, name string) (io.ReadCloser, error)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	share, cleanup, err := t.mount(ctx)
 	if err != nil {
 		cancel()
@@ -171,6 +171,7 @@ func (t *smbTarget) Get(ctx context.Context, name string) (io.ReadCloser, error)
 	}
 	f, err := share.Open(path.Join(t.dir, name))
 	if err != nil {
+		err = expired(ctx, err)
 		cleanup()
 		cancel()
 		if os.IsNotExist(err) {
@@ -178,7 +179,7 @@ func (t *smbTarget) Get(ctx context.Context, name string) (io.ReadCloser, error)
 		}
 		return nil, err
 	}
-	return &sessionReadCloser{ReadCloser: f, cleanup: cleanup, cancel: cancel}, nil
+	return &sessionReadCloser{ReadCloser: f, ctx: ctx, cleanup: cleanup, cancel: cancel, touch: touch}, nil
 }
 
 // SMB servers commonly apply Windows case folding, alternate-data-stream,
@@ -209,7 +210,7 @@ func cleanSMBName(name string) (string, error) {
 }
 
 func (t *smbTarget) Test(ctx context.Context) error {
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, _ := budget(ctx, t.timeout)
 	defer cancel()
 	share, cleanup, err := t.mount(ctx)
 	if err != nil {

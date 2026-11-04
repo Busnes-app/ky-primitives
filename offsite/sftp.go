@@ -146,14 +146,14 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return t.put(ctx, client, name, &contextReader{ctx: ctx, r: r})
+	return expired(ctx, t.put(ctx, client, name, &contextReader{ctx: ctx, r: r, touch: touch}))
 }
 
 // put stages and publishes one object over an open session; Put and Test share it so a
@@ -197,7 +197,7 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		cancel()
@@ -205,6 +205,7 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 	}
 	f, err := client.Open(path.Join(t.dir, name))
 	if err != nil {
+		err = expired(ctx, err)
 		cleanup()
 		cancel()
 		if os.IsNotExist(err) {
@@ -212,11 +213,11 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 		}
 		return nil, err
 	}
-	return &sessionReadCloser{ReadCloser: f, cleanup: cleanup, cancel: cancel}, nil
+	return &sessionReadCloser{ReadCloser: f, ctx: ctx, cleanup: cleanup, cancel: cancel, touch: touch}, nil
 }
 
 func (t *sftpTarget) Test(ctx context.Context) error {
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, _ := budget(ctx, t.timeout)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
@@ -231,9 +232,21 @@ func (t *sftpTarget) Test(ctx context.Context) error {
 
 type sessionReadCloser struct {
 	io.ReadCloser
-	cleanup func()
-	cancel  context.CancelFunc
-	once    sync.Once
+	ctx           context.Context
+	cleanup       func()
+	cancel, touch func()
+	once          sync.Once
+}
+
+func (c *sessionReadCloser) Read(p []byte) (int, error) {
+	if len(p) > maxTransferRead {
+		p = p[:maxTransferRead]
+	}
+	n, err := c.ReadCloser.Read(p)
+	if n > 0 {
+		c.touch()
+	}
+	return n, expired(c.ctx, err)
 }
 
 func (c *sessionReadCloser) Close() (err error) {

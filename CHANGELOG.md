@@ -13,6 +13,24 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `syncauth.Middleware` answers a replayed event ID with 200
+  `{"status":"duplicate_event"}` instead of 401 `invalid_signature`, and, when the
+  `Replay` implements the new `syncauth.Forgetter` (the `NewMemoryReplay` guard does),
+  forgets the ID when the handler answers non-2xx or panics, so the sender's retry runs
+  again. Callers of `Verify` are unaffected; they can now `Forget` an ID themselves
+  instead of copying the guard. Senders that treated a 401 on retry as final should
+  treat 200 `duplicate_event` as delivered.
+- Root (minor): `auditchain.Chain.Append` and `auditchain.Replay` refuse a field that is
+  not valid UTF-8 with the new `ErrInvalidUTF8` and store nothing; such a record failed
+  its own digest after a JSON round trip. Pass request-derived text through
+  `logging.AuditFields`. A bulk `Replay` of a legacy log holding invalid UTF-8 now fails
+  and names the tuple.
+- Offsite: an unset `Config.Timeout` means five minutes without progress and 24 hours at
+  most, instead of five minutes for the whole transfer, so large objects on slow links
+  complete. SFTP and SMB move at most 1 MiB per read so progress stays visible, and an
+  expired budget reports `context.DeadlineExceeded`. An explicit `Timeout` keeps its
+  meaning.
+
 - Root: `oidcverify` runs the shared JWKS fetch detached from the request that
   triggered it, so a client that hangs up can no longer make every verification
   fail with `ErrUnknownKey` for `MinRefresh`. Every caller waiting on the fetch,

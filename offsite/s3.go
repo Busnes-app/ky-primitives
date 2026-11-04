@@ -58,7 +58,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 	if err != nil {
 		return err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	defer cancel()
 	var body io.Reader
 	var size int64
@@ -69,7 +69,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 			return err
 		}
 		h := sha256.New()
-		size, err = io.Copy(h, &contextReader{ctx: ctx, r: seeker})
+		size, err = io.Copy(h, &contextReader{ctx: ctx, r: seeker, touch: touch})
 		if err != nil {
 			return fmt.Errorf("offsite: hash S3 upload: %w", err)
 		}
@@ -78,7 +78,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 		}
 		payloadHash, body = hex.EncodeToString(h.Sum(nil)), seeker
 	} else {
-		raw, err := io.ReadAll(&contextReader{ctx: ctx, r: r})
+		raw, err := io.ReadAll(&contextReader{ctx: ctx, r: r, touch: touch})
 		if err != nil {
 			return fmt.Errorf("offsite: read S3 upload: %w", err)
 		}
@@ -89,14 +89,14 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 	if err != nil {
 		return err
 	}
-	req.Body, req.ContentLength = io.NopCloser(body), size
+	req.Body, req.ContentLength = io.NopCloser(&contextReader{ctx: ctx, r: body, touch: touch}), size
 	if size == 0 {
 		// A non-nil body with ContentLength 0 is sent chunked, which S3 refuses.
 		req.Body = http.NoBody
 	}
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("offsite: S3 PUT: %w", err)
+		return expired(ctx, fmt.Errorf("offsite: S3 PUT: %w", err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
@@ -110,7 +110,7 @@ func (t *s3Target) Get(ctx context.Context, name string) (io.ReadCloser, error) 
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := budget(ctx, t.timeout)
+	ctx, cancel, touch := budget(ctx, t.timeout)
 	req, err := t.request(ctx, http.MethodGet, name, "UNSIGNED-PAYLOAD")
 	if err != nil {
 		cancel()
@@ -118,8 +118,9 @@ func (t *s3Target) Get(ctx context.Context, name string) (io.ReadCloser, error) 
 	}
 	resp, err := t.client.Do(req)
 	if err != nil {
+		err = expired(ctx, fmt.Errorf("offsite: S3 GET: %w", err))
 		cancel()
-		return nil, fmt.Errorf("offsite: S3 GET: %w", err)
+		return nil, err
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		resp.Body.Close()
@@ -132,7 +133,7 @@ func (t *s3Target) Get(ctx context.Context, name string) (io.ReadCloser, error) 
 		cancel()
 		return nil, err
 	}
-	return &cancelReadCloser{ReadCloser: resp.Body, cancel: cancel}, nil
+	return &cancelReadCloser{ReadCloser: resp.Body, ctx: ctx, cancel: cancel, touch: touch}, nil
 }
 
 func (t *s3Target) Test(ctx context.Context) error {
@@ -174,7 +175,16 @@ func responseError(op string, resp *http.Response) error {
 
 type cancelReadCloser struct {
 	io.ReadCloser
-	cancel context.CancelFunc
+	ctx           context.Context
+	cancel, touch func()
+}
+
+func (c *cancelReadCloser) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	if n > 0 {
+		c.touch()
+	}
+	return n, expired(c.ctx, err)
 }
 
 func (c *cancelReadCloser) Close() error {

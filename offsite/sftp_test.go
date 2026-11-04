@@ -239,3 +239,74 @@ func TestSFTPTestFailsWhenPutCannotPublish(t *testing.T) {
 		t.Fatal("Test passed on a server that refuses every Put")
 	}
 }
+
+// A caller's large buffer must not hide progress from the idle budget for longer than one
+// bounded Read, on the download side and on the upload source (SMB writes what one source
+// Read returned, up to its maximum write size, before reading again).
+func TestTransferReadsAreBounded(t *testing.T) {
+	src := strings.Repeat("x", 3<<20)
+	r := &sessionReadCloser{ReadCloser: io.NopCloser(strings.NewReader(src)), ctx: context.Background(), cleanup: func() {}, cancel: func() {}, touch: func() {}}
+	n, err := r.Read(make([]byte, 4<<20))
+	if err != nil || n > maxTransferRead {
+		t.Fatalf("download Read returned %d bytes (%v), want at most %d", n, err, maxTransferRead)
+	}
+	up := &contextReader{ctx: context.Background(), r: strings.NewReader(src)}
+	n, err = up.Read(make([]byte, 4<<20))
+	if err != nil || n > maxTransferRead {
+		t.Fatalf("upload source Read returned %d bytes (%v), want at most %d", n, err, maxTransferRead)
+	}
+}
+
+// stalledWrites is an SFTP filesystem whose file writes never complete.
+type stalledWrites struct {
+	sftp.FileWriter
+	release chan struct{}
+}
+
+func (s stalledWrites) Filewrite(*sftp.Request) (io.WriterAt, error) { return s, nil }
+
+func (s stalledWrites) WriteAt(p []byte, _ int64) (int, error) {
+	<-s.release
+	return 0, io.ErrClosedPipe
+}
+
+// slowSource yields one small chunk per tick: steady progress, slower in total than the
+// idle budget.
+type slowSource struct{ left int }
+
+func (s *slowSource) Read(p []byte) (int, error) {
+	if s.left == 0 {
+		return 0, io.EOF
+	}
+	time.Sleep(100 * time.Millisecond)
+	s.left--
+	return copy(p, "chunk"), nil
+}
+
+// With no Timeout the default bounds time without progress, not the whole transfer, and a
+// write that stops moving ends as context.DeadlineExceeded, not a bare closed connection.
+func TestSFTPDefaultBudgetAllowsSlowPutsAndStopsStalledWrites(t *testing.T) {
+	saved := defaultTransferBudget
+	defaultTransferBudget = 400 * time.Millisecond
+	defer func() { defaultTransferBudget = saved }()
+	ctx := context.Background()
+
+	mem := sftp.InMemHandler()
+	addr, fingerprint := startSFTPServerWith(t, &mem)
+	target := &sftpTarget{addr: addr, user: testSFTPUser, secret: testSFTPPass, dir: "/vault", hostKey: fingerprint}
+	if err := target.Put(ctx, "slow", &slowSource{left: 10}, 50); err != nil {
+		t.Fatalf("slow but steady Put: %v", err)
+	}
+
+	h := sftp.InMemHandler()
+	release := make(chan struct{})
+	defer close(release)
+	h.FilePut = stalledWrites{FileWriter: h.FilePut, release: release}
+	addr, fingerprint = startSFTPServerWith(t, &h)
+	target = &sftpTarget{addr: addr, user: testSFTPUser, secret: testSFTPPass, dir: "/vault", hostKey: fingerprint}
+	start := time.Now()
+	err := target.Put(ctx, "stalled", strings.NewReader("x"), 1)
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+		t.Fatalf("stalled Put: err %v after %s, want context.DeadlineExceeded", err, time.Since(start))
+	}
+}
