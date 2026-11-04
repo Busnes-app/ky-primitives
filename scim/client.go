@@ -146,13 +146,25 @@ func (c *Client) DeleteUser(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, u, nil, nil)
 }
 
-// outbound is the user as sent: schema filled in, server-owned fields cleared.
-func outbound(user User) User {
+// outboundUser is the body of a create or replace. Roles is always sent, as [] when the user
+// has none: a server may keep or default an attribute a PUT leaves out (RFC 7644 section
+// 3.5.1), so omitting it would let a revoked last role survive downstream.
+type outboundUser struct {
+	User
+	Roles []MultiValue `json:"roles"`
+}
+
+// outbound is the user as sent: schema filled in, server-owned fields cleared, roles present.
+func outbound(user User) outboundUser {
 	user.ID, user.Meta = "", nil
 	if len(user.Schemas) == 0 {
 		user.Schemas = []string{UserSchema}
 	}
-	return user
+	roles := user.Roles
+	if roles == nil {
+		roles = []MultiValue{}
+	}
+	return outboundUser{User: user, Roles: roles}
 }
 
 // user is the URL of one user. The ID is path-escaped and must be a real segment: an empty

@@ -552,3 +552,41 @@ func TestTransportErrorsDoNotCarryTheQuery(t *testing.T) {
 		t.Fatalf("query leaked into the transport error: %v", err)
 	}
 }
+
+// A replace that revokes a user's last role must say so: a server may keep an attribute a PUT
+// leaves out (RFC 7644 section 3.5.1), so roles goes on the wire as [] and is never omitted.
+func TestCreateAndReplaceAlwaysSendRoles(t *testing.T) {
+	f := newFake(t)
+	c := f.client()
+	ctx := context.Background()
+
+	admin := User{ExternalID: "local-7", UserName: "bob", Active: true,
+		Roles: []MultiValue{{Value: "admin"}}}
+	created, err := c.CreateUser(ctx, admin)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if _, body := f.last(); !strings.Contains(string(body), `"roles":[{"value":"admin"}]`) {
+		t.Fatalf("create lost the roles: %s", body)
+	}
+
+	admin.Roles = nil
+	if _, err := c.ReplaceUser(ctx, created.ID, admin); err != nil {
+		t.Fatalf("ReplaceUser: %v", err)
+	}
+	_, body := f.last()
+	var sent map[string]json.RawMessage
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if string(sent["roles"]) != "[]" {
+		t.Fatalf("a replace without roles must send roles: [], sent %s", body)
+	}
+
+	if _, err := c.CreateUser(ctx, User{UserName: "carol", Active: true, Roles: []MultiValue{}}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if _, body := f.last(); !strings.Contains(string(body), `"roles":[]`) {
+		t.Fatalf("a create without roles must send roles: [], sent %s", body)
+	}
+}
