@@ -14,16 +14,20 @@ Keep unpublished changes separate from tagged releases.
 ## Unreleased source changes
 
 - Root: `oidcverify` runs the shared JWKS fetch detached from the request that
-  triggered it (capped at 30 seconds), so a client that hangs up can no longer
-  make every verification fail with `ErrUnknownKey` for `MinRefresh`.
-- Root: `syncauth.Verify` holds the `NewMemoryReplay` guard to the wider of its own
-  window and `Options.Window`, on `Options.Now`; a wider verify window no longer
-  lets an event replay once the guard forgets it.
+  triggered it, so a client that hangs up can no longer make every verification
+  fail with `ErrUnknownKey` for `MinRefresh`. Each caller still stops waiting at
+  its own deadline; an `HTTPClient` without a timeout is capped at 30 seconds.
+- Root: the `NewMemoryReplay` guard keeps each event ID until its timestamp leaves
+  the wider of the guard's window and `Options.Window` (boundary included, on
+  `Options.Now`); a wider verify window no longer lets an event replay once the
+  guard forgets it.
 - Root: `recoveryclient.WriteLocalCopy` never prunes the copy it just wrote, even
-  when older copies carry later modification times.
+  when older copies carry later modification times. The KyRecovery client tries
+  every allowed address instead of only the first.
 - Offsite: SFTP and SMB `Test` stage and rename like `Put`, so a server that cannot
   publish fails the test. With `Config.Timeout` zero, a transfer now fails after
-  five minutes without progress rather than five minutes in total. Empty S3
+  five minutes without progress (24 hours at most) rather than five minutes in
+  total; an explicit `Timeout` is unchanged. Empty S3
   uploads send `Content-Length: 0` instead of a chunked body.
 - Root: new `suitedir` package, the client for KyIdentity's suite directory
   (`/api/suite/apps`, `/api/suite/peer`). Additive; no migration.
