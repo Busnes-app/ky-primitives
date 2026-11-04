@@ -29,6 +29,11 @@ Every field is length-prefixed. Joining on a delimiter lets a field containing i
 into its neighbour and produce another record's digest, forging a record without the key;
 `TestFieldsAreUnambiguousAcrossDelimiters` pins that.
 
+Fields must be valid UTF-8. `Append` and `Replay` refuse anything else with
+`ErrInvalidUTF8` and store nothing: `encoding/json` writes invalid bytes as U+FFFD, so a
+record stored or exported as JSON would fail its own digest and read as tampered forever.
+Pass request-derived text through `logging.AuditFields`, which replaces invalid bytes.
+
 Persistence is a parameter of `Append`, not the caller's next statement. The chain's
 in-memory head is a claim about what is on disk: advancing it first meant a failed insert
 left the next record chained onto one that never existed, and a record stored without its
@@ -48,7 +53,13 @@ such a copy, for example beside the key file or in the stream `(*logging.Logger)
 ships. Write it after the transaction commits, never inside `persist`. It can lag the log,
 so check it as a lower bound: the log must hold at least `ext.Count` records (fewer is
 truncation), and `Verify(key, records[:ext.Count], ext)` must pass, alongside the full
-check against the stored anchor.
+check against the stored anchor. With `cmd/kyauditverify`, which checks a log against one
+anchor exactly, run it twice: once over the whole log with the stored anchor, and once over
+the first `Count` records with the outside copy, for example
+`grep -v '^[[:space:]]*$' trail.jsonl | head -n 42 | kyauditverify -key @audit.key -anchor 42:<hash>`.
+Given the whole log instead, a log longer than the outside copy fails with "records past
+an anchor" before the anchor's hash is compared, so that error says nothing either way: the check
+over the first `Count` records is the one that decides.
 
 `Resume` requires it too. A valid digest does not make a record the tail — every record in
 a healthy chain carries one — so resuming from the middle was accepted and the next append

@@ -23,12 +23,24 @@ h.Apply(req)
 mux.Handle("POST /api/sync", syncauth.Middleware(keyFn, syncauth.Options{Replay: syncauth.NewMemoryReplay(0, 0)}, 0, logReject)(handler))
 ```
 
+An event ID is reserved when the request verifies. When the `Replay` is a
+`syncauth.Forgetter` (the memory guard is), `Middleware` forgets the ID if the handler answers
+anything but 2xx or panics, so the sender's retry runs again. A retry that arrives while the
+first delivery is still running is acknowledged as a duplicate; if that delivery then fails,
+the event is lost, so keep the handler well inside the sender's timeout. A `Replay` that is
+not a `Forgetter` is never released, and must drop the ID itself when the handler fails. A retry of an event already
+processed answers 200 `{"status":"duplicate_event"}` without calling the handler; `logReject`
+still sees `ErrReplay`. A receiver that calls `Verify` itself does the same: `Forget` the ID
+when processing fails, and answer `ErrReplay` with 2xx.
+
 Pinned: every bound field changes the verdict (`TestVerifyBindsEveryField`); a missing
 signature, a timestamp outside the window in either direction, and a short key each refuse
 (`TestVerifyRefusesMissingStaleAndShort`); the replay guard forgets only what has left the window and refuses with
 `ErrReplayGuardFull` rather than forget an ID it must remember (`TestReplayGuard`); the middleware reads a bounded body, fails closed when the key is not
 configured, and hands the handler exactly the bytes that were signed
-(`TestMiddlewareVerifiesAndReplaysTheBodyToTheHandler`); `FuzzVerify` accepts only the
+(`TestMiddlewareVerifiesAndReplaysTheBodyToTheHandler`); a failed or panicking handler
+releases the ID and a processed one is acknowledged as a duplicate
+(`TestMiddlewareReleasesFailedEventsAndAcksDuplicates`); `FuzzVerify` accepts only the
 original tuple.
 
 ## oidcverify

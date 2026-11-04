@@ -70,6 +70,9 @@ const (
 	minSalt    = 8
 	minKey     = 16
 	maxDecoded = 1024
+	// maxEncoded is above the longest PHC string these bounds admit (about 2.8 KiB: two
+	// 1024-byte values in base64 plus the fixed segments).
+	maxEncoded = 3 << 10
 )
 
 var (
@@ -451,6 +454,11 @@ func (p Params) Validate() error {
 
 // parse reads a PHC string strictly: every segment must be present and well formed.
 func parse(encoded string) (Params, []byte, []byte, error) {
+	// A stored hash is attacker-controlled: refuse an oversized one before splitting or
+	// quoting any of it, which would allocate many times its size.
+	if len(encoded) > maxEncoded {
+		return Params{}, nil, nil, fmt.Errorf("%w: %d bytes, want at most %d", ErrMalformed, len(encoded), maxEncoded)
+	}
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[0] != "" {
 		return Params{}, nil, nil, fmt.Errorf("%w: %d segments", ErrMalformed, len(parts))

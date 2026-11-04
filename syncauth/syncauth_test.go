@@ -186,6 +186,77 @@ func TestMiddlewareVerifiesAndReplaysTheBodyToTheHandler(t *testing.T) {
 	}
 }
 
+func TestMiddlewareReleasesFailedEventsAndAcksDuplicates(t *testing.T) {
+	body := []byte(`{"user":{"id":"u1"}}`)
+	status := http.StatusServiceUnavailable
+	calls := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if status == 0 {
+			panic("handler blew up")
+		}
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+		}
+	})
+	var rejected []error
+	srv := Middleware(func(*http.Request) ([]byte, error) { return key, nil },
+		Options{Replay: NewMemoryReplay(time.Minute, 1)}, 0,
+		func(_ *http.Request, err error) { rejected = append(rejected, err) })(next)
+	h, _ := Sign(key, time.Now(), "user.deprovisioned", "evt-1", body)
+	send := func() *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+		h.Apply(req)
+		w := httptest.NewRecorder()
+		func() {
+			defer func() { _ = recover() }()
+			srv.ServeHTTP(w, req)
+		}()
+		return w
+	}
+
+	// A failed delivery releases the ID, so the sender's retry reaches the handler.
+	if w := send(); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first delivery: %d", w.Code)
+	}
+	status = 0 // a panicking handler releases it too
+	send()
+	// The guard holds one ID; a released one must not still occupy the slot.
+	status = http.StatusOK // writes nothing: net/http answers 200
+	if w := send(); w.Code != http.StatusOK || calls != 3 {
+		t.Fatalf("retry after failures: %d, handler calls %d", w.Code, calls)
+	}
+	// Once processed, a retry is acknowledged without running the handler again.
+	w := send()
+	if w.Code != http.StatusOK || calls != 3 || !strings.Contains(w.Body.String(), "duplicate_event") {
+		t.Fatalf("duplicate: %d %s, handler calls %d", w.Code, w.Body.String(), calls)
+	}
+	if len(rejected) != 1 || !errors.Is(rejected[0], ErrReplay) {
+		t.Fatalf("onReject: %v", rejected)
+	}
+}
+
+func TestMemoryReplayForgetFreesTheSlot(t *testing.T) {
+	// The forgotten ID is not at the head, so only removing it from the order frees its
+	// slot; the head sweep would not.
+	rp := NewMemoryReplay(time.Minute, 2).(Forgetter)
+	now := time.Now()
+	for _, id := range []string{"a", "b"} {
+		if err := rp.Check(id, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rp.Forget("b")
+	rp.Forget("never-seen")
+	if err := rp.Check("c", now); err != nil {
+		t.Fatalf("forgotten ID still holds the slot: %v", err)
+	}
+	if err := rp.Check("a", now); !errors.Is(err, ErrReplay) {
+		t.Fatalf("forget dropped another ID: %v", err)
+	}
+}
+
 func FuzzVerify(f *testing.F) {
 	body := []byte(`{"a":1}`)
 	h, _ := Sign(key, time.Now(), "t", "id", body)
@@ -200,4 +271,74 @@ func FuzzVerify(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestMiddlewareKeepsFlusherBehindAForgetter(t *testing.T) {
+	body := []byte("x")
+	flushed := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f, ok := w.(http.Flusher)
+		if ok {
+			f.Flush()
+		}
+		flushed = ok
+	})
+	srv := Middleware(func(*http.Request) ([]byte, error) { return key, nil }, Options{Replay: NewMemoryReplay(0, 0)}, 0, nil)(next)
+	h, _ := Sign(key, time.Now(), "t", "evt-f", body)
+	req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+	h.Apply(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if !flushed || !w.Flushed || w.Code != http.StatusOK {
+		t.Fatalf("flusher %v, recorder flushed %v, code %d", flushed, w.Flushed, w.Code)
+	}
+}
+
+// plainWriter can neither flush nor unwrap, like an outer middleware's wrapper.
+type plainWriter struct{ w http.ResponseWriter }
+
+func (p plainWriter) Header() http.Header         { return p.w.Header() }
+func (p plainWriter) Write(b []byte) (int, error) { return p.w.Write(b) }
+func (p plainWriter) WriteHeader(code int)        { p.w.WriteHeader(code) }
+
+// A flush that did nothing must not count as a 200: the handler's later 503 still
+// releases the ID.
+func TestMiddlewareFailedFlushDoesNotCountAsSuccess(t *testing.T) {
+	body := []byte("x")
+	calls := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.(http.Flusher).Flush()
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	mw := Middleware(func(*http.Request) ([]byte, error) { return key, nil }, Options{Replay: NewMemoryReplay(0, 0)}, 0, nil)(next)
+	srv := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { mw.ServeHTTP(plainWriter{w}, r) })
+	h, _ := Sign(key, time.Now(), "t", "evt-nf", body)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+		h.Apply(req)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("delivery %d: %d", i+1, w.Code)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("the retry of a failed event did not reach the handler: %d calls", calls)
+	}
+}
+
+func TestMiddlewareReportsAFlushTheWriterCannotDo(t *testing.T) {
+	var flushErr error
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flushErr = http.NewResponseController(w).Flush()
+	})
+	mw := Middleware(func(*http.Request) ([]byte, error) { return key, nil }, Options{Replay: NewMemoryReplay(0, 0)}, 0, nil)(next)
+	h, _ := Sign(key, time.Now(), "t", "evt-fe", []byte("x"))
+	req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader([]byte("x")))
+	h.Apply(req)
+	mw.ServeHTTP(plainWriter{httptest.NewRecorder()}, req)
+	if !errors.Is(flushErr, http.ErrNotSupported) {
+		t.Fatalf("flush through the controller: %v, want http.ErrNotSupported", flushErr)
+	}
 }

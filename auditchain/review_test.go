@@ -123,3 +123,26 @@ func TestAppendRequiresAPersister(t *testing.T) {
 		t.Fatalf("chain advanced on a rejected append: %+v", got)
 	}
 }
+
+// encoding/json writes invalid UTF-8 as U+FFFD, so a record carrying such a field would
+// fail its own digest after a JSON round trip: a permanent false tamper alarm.
+func TestAppendAndReplayRefuseInvalidUTF8(t *testing.T) {
+	c, err := New(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted := 0
+	persist := func(Record, Anchor) error { persisted++; return nil }
+	if _, err := c.Append(context.Background(), persist, "login", "/u/\xff"); !errors.Is(err, ErrInvalidUTF8) {
+		t.Fatalf("invalid UTF-8 field: got %v, want ErrInvalidUTF8", err)
+	}
+	if persisted != 0 || c.Anchor().Count != 0 {
+		t.Fatalf("refused append persisted %d records, anchor %+v", persisted, c.Anchor())
+	}
+	if _, err := c.Append(context.Background(), persist, "login", "/u/é"); err != nil {
+		t.Fatalf("valid UTF-8 refused: %v", err)
+	}
+	if _, _, err := Replay(key, [][]string{{"ok"}, {"\xc3"}}); !errors.Is(err, ErrInvalidUTF8) || !strings.Contains(err.Error(), "tuple 1") {
+		t.Fatalf("Replay: got %v, want ErrInvalidUTF8 naming tuple 1", err)
+	}
+}

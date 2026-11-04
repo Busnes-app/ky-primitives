@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
@@ -153,6 +154,11 @@ func buildPayload(files []File) ([]byte, []FileEntry, error) {
 		name, err := safeRelPath(f.Path)
 		if err != nil {
 			return nil, nil, err
+		}
+		// The file list is JSON, which rewrites invalid UTF-8 as U+FFFD, so such a path
+		// would seal into a capsule every Open refuses.
+		if !utf8.ValidString(name) {
+			return nil, nil, fmt.Errorf("capsule: path %q is not valid UTF-8", name)
 		}
 		if _, dup := seen[name]; dup {
 			return nil, nil, fmt.Errorf("%w: %q", ErrDuplicatePath, name)

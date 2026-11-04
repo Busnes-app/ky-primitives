@@ -15,10 +15,22 @@ import (
 )
 
 const (
-	defaultTransferBudget = 5 * time.Minute
-	pingName              = ".ky-offsite-ping"
-	stagingPrefix         = ".ky-offsite-tmp-"
+	pingName      = ".ky-offsite-ping"
+	stagingPrefix = ".ky-offsite-tmp-"
 )
+
+// defaultTransferBudget is how long a transfer with no Timeout may go without moving a
+// byte. A variable only so tests can shorten it. maxTransfer still ends a transfer that
+// trickles forever.
+var defaultTransferBudget = 5 * time.Minute
+
+const maxTransfer = 24 * time.Hour
+
+// maxTransferRead bounds one Read on either side of a transfer. SFTP and SMB fill a large
+// buffer through many network round trips before a Read returns, or write it the same way,
+// and the budget only sees progress when a Read returns. At 1 MiB per five minutes the
+// slowest transfer the default still completes moves about 3.5 KiB/s.
+const maxTransferRead = 1 << 20
 
 // ErrObjectExists is returned when a backend cannot safely replace an object.
 var ErrObjectExists = errors.New("offsite: object already exists")
@@ -40,7 +52,12 @@ type Config struct {
 	HostKey    string
 	S3Endpoint string
 	S3Region   string
-	Timeout    time.Duration
+	// Timeout, when set, is a deadline for each whole transfer. Zero means five minutes
+	// without progress and 24 hours at most: every read of the source and of a Get body
+	// renews it, so large objects on slow links still complete (SFTP and SMB move at most
+	// 1 MiB per read, so the slowest transfer that completes moves about 3.5 KiB/s). A
+	// transfer the budget ends fails with an error matching context.DeadlineExceeded.
+	Timeout time.Duration
 }
 
 // Parse validates c and constructs its target.
@@ -123,6 +140,12 @@ func Parse(c Config) (Target, error) {
 
 // Key returns a stable target identity with credentials removed. URLs that
 // cannot be parsed return an empty key.
+//
+// The SFTP or SMB user is a credential here and is left out, but SFTP paths are
+// relative to the account root and shares differ by account: sftp://alice@nas/b
+// and sftp://bob@nas/b get the same Key and are different directories. A caller
+// that keys per-target state (what was already uploaded) on Key adds the
+// effective user, and for SFTP the HostKey, itself.
 func Key(c Config) string {
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Scheme == "" {
@@ -177,9 +200,33 @@ func cleanPrefix(p string) (string, error) {
 	return cleanName(p)
 }
 
-func budget(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout == 0 {
-		timeout = defaultTransferBudget
+// budget bounds one transfer. An explicit Timeout is a deadline for the whole transfer.
+// The default is a no-progress limit instead, renewed by touch whenever bytes move: a
+// capsule on a slow uplink takes longer than any fixed default, and a stalled peer still
+// fails after defaultTransferBudget. Expiry is the context's cause, DeadlineExceeded.
+func budget(ctx context.Context, timeout time.Duration) (_ context.Context, cancel, touch func()) {
+	if timeout != 0 {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		return ctx, cancel, func() {}
 	}
-	return context.WithTimeout(ctx, timeout)
+	ctx, end := context.WithTimeout(ctx, maxTransfer)
+	ctx, stop := context.WithCancelCause(ctx)
+	timer := time.AfterFunc(defaultTransferBudget, func() { stop(context.DeadlineExceeded) })
+	cancel = func() { timer.Stop(); stop(context.Canceled); end() }
+	touch = func() {
+		if ctx.Err() == nil {
+			timer.Reset(defaultTransferBudget)
+		}
+	}
+	return ctx, cancel, touch
+}
+
+// expired reports a transfer that its budget or its caller ended as the context's cause
+// (context.DeadlineExceeded when the budget ran out), whatever error the closed connection
+// surfaced first.
+func expired(ctx context.Context, err error) error {
+	if err == nil || err == io.EOF || ctx.Err() == nil || errors.Is(err, context.Cause(ctx)) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", context.Cause(ctx), err)
 }

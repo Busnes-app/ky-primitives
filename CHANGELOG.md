@@ -13,13 +13,39 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `syncauth.Middleware` answers a replayed event ID with 200
+  `{"status":"duplicate_event"}` instead of 401 `invalid_signature`, and, when the
+  `Replay` implements the new `syncauth.Forgetter` (the `NewMemoryReplay` guard does),
+  forgets the ID when the handler answers non-2xx or panics, so the sender's retry runs
+  again. Callers of `Verify` are unaffected; they can now `Forget` an ID themselves
+  instead of copying the guard. Senders that treated a 401 on retry as final should
+  treat 200 `duplicate_event` as delivered.
+- Root (minor): `auditchain.Chain.Append` and `auditchain.Replay` refuse a field that is
+  not valid UTF-8 with the new `ErrInvalidUTF8` and store nothing; such a record failed
+  its own digest after a JSON round trip. Pass request-derived text through
+  `logging.AuditFields`. A bulk `Replay` of a legacy log holding invalid UTF-8 now fails
+  and names the tuple.
+- Root: `capsule.Seal` refuses a file path that is not valid UTF-8; such a capsule
+  sealed fine and then failed every `Open`. `password.Verify` refuses a stored hash longer than
+  3 KiB before splitting or quoting it.
+- Offsite: an SFTP `Secret` that contains `-----BEGIN ` is always treated as a private
+  key, so a key pasted without its END line fails to parse instead of being sent to the
+  server as a password.
+- Offsite: an unset `Config.Timeout` means five minutes without progress and 24 hours at
+  most, instead of five minutes for the whole transfer, so large objects on slow links
+  complete. SFTP and SMB move at most 1 MiB per read so progress stays visible, and an
+  expired budget reports `context.DeadlineExceeded`. An explicit `Timeout` keeps its
+  meaning.
+
 - Root: `oidcverify` runs the shared JWKS fetch detached from the request that
   triggered it, so a client that hangs up can no longer make every verification
   fail with `ErrUnknownKey` for `MinRefresh`. Every caller waiting on the fetch,
   including one that arrives while it is in flight, still stops at its own
   deadline; an `HTTPClient` without a timeout is capped at 30 seconds.
 - Root: `recoveryclient.WriteLocalCopy` never prunes the copy it just wrote, even
-  when older copies carry later modification times. The KyRecovery client tries
+  when older copies carry later modification times, nor a copy at least as new as its
+  own that a racing run wrote, so two runs with `keep=1` can no longer delete each
+  other's copies and leave none. The KyRecovery client tries
   every allowed address instead of only the first.
 - Offsite: SFTP and SMB `Test` stage and rename like `Put`, so a server that cannot
   publish fails the test. Empty S3 uploads send `Content-Length: 0` instead of a

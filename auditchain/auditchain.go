@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"unicode/utf8"
 )
 
 // genesis is the predecessor hash of the first record.
@@ -43,6 +44,11 @@ var (
 	ErrBrokenChain = errors.New("auditchain: chain does not verify")
 	// ErrTruncated reports a log holding fewer records than the anchor counted.
 	ErrTruncated = errors.New("auditchain: log is shorter than its anchor")
+	// ErrInvalidUTF8 reports a field that is not valid UTF-8. Append and Replay refuse it:
+	// encoding/json writes such bytes as U+FFFD, so a record stored or exported as JSON
+	// would no longer carry its own digest and would verify as altered forever. Pass
+	// request-derived text through logging.AuditFields, which replaces invalid bytes.
+	ErrInvalidUTF8 = errors.New("auditchain: field is not valid UTF-8")
 )
 
 // Record is one link. Fields are opaque to this package; products log different things
@@ -67,7 +73,8 @@ type Anchor struct {
 // The lock is a channel rather than a sync.Mutex because persist runs while it is held,
 // and a sync.Mutex cannot be waited on with a deadline. A store that hangs therefore owned
 // the chain outright: every later append, and every Anchor(), blocked on it forever with
-// no way to shed. Append takes a context.Context so a waiter can give up.
+// no way to shed. Append takes a context.Context so a waiter can give up; Anchor does
+// not, and still waits for a persist that hangs.
 type Chain struct {
 	lock  chan struct{}
 	key   []byte
@@ -148,9 +155,17 @@ func Resume(key []byte, last Record, anchor Anchor) (*Chain, error) {
 // whether the record was stored — which is the whole reason persist runs under the lock.
 // Give persist its own timeout, and do not call back into the Chain from it: the lock is
 // not reentrant, and the anchor it would ask for is already one of its arguments.
+//
+// Every field must be valid UTF-8; otherwise Append returns an error wrapping
+// ErrInvalidUTF8 and persists nothing.
 func (c *Chain) Append(ctx context.Context, persist func(Record, Anchor) error, fields ...string) (Record, error) {
 	if persist == nil {
 		return Record{}, errors.New("auditchain: a persist function is required; the chain cannot advance without knowing the record is stored")
+	}
+	for i, f := range fields {
+		if !utf8.ValidString(f) {
+			return Record{}, fmt.Errorf("%w: field %d", ErrInvalidUTF8, i)
+		}
 	}
 	if err := c.acquire(ctx); err != nil {
 		return Record{}, err

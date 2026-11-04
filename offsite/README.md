@@ -28,6 +28,11 @@ outside that profile.
 | `smb://host/share/dir` | `AccessKey`, `Secret` | `AccessKey` may be `DOMAIN\user`; SMB1 is never negotiated. |
 | `file:///absolute/path` | none | Writes owner-only files by temporary file and rename. |
 
+`Key` names a target without its credentials, and it treats the SFTP or SMB user as one.
+Two accounts on the same host and path therefore share a `Key` while writing to different
+directories. State kept per target, such as which objects were already uploaded, must add
+the effective user (and the SFTP `HostKey`) to the key.
+
 Passwords in URLs are rejected. SMB rejects all userinfo because endpoints are
 commonly logged. SFTP never connects successfully without a pinned SHA256 host
 fingerprint. Calling `Test` without a pin returns `UnknownHostKeyError` carrying
@@ -52,10 +57,11 @@ Local targets resolve every operation through `os.Root`, so a symlink beneath
 the configured directory cannot escape it. SFTP and SMB reserve random
 `.ky-offsite-tmp-*` names for staging; callers cannot address that namespace.
 
-SMB cannot safely replace an existing path because `go-smb2` does not expose
-replace-on-rename. Its `Put` returns `ErrObjectExists` instead of deleting the
-previous replica. Use immutable object names, as capsule and content-addressed
-blob IDs do.
+SMB `Put` returns `ErrObjectExists` when the name already exists instead of
+deleting the previous replica. The check is not atomic: `go-smb2`'s rename always
+replaces, so two concurrent `Put`s of one name both succeed and the later one
+wins. Use immutable object names, as capsule and content-addressed blob IDs do,
+so that same name means same bytes.
 
 SMB object-name components are limited to lowercase ASCII letters, digits,
 dot, underscore, and hyphen. Trailing dots, Windows device names, and `~` are

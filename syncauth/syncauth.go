@@ -155,8 +155,20 @@ type Replay interface {
 	Check(id string, at time.Time) error
 }
 
+// Forgetter is a Replay that can release an ID Check recorded, so the sender's retry of an
+// event the receiver failed to process is accepted again instead of refused as a replay.
+// Middleware releases the ID itself when the handler answers anything but 2xx; a receiver
+// that calls Verify directly calls Forget when it fails to process the event. The guard
+// NewMemoryReplay returns implements it.
+type Forgetter interface {
+	Replay
+	Forget(id string)
+}
+
 // Verify checks the headers against the body and the key. Every failure is one of the
-// exported errors; the receiver answers 401 to all of them and logs which.
+// exported errors; the receiver answers 401 to all of them and logs which, except
+// ErrReplay, which it acknowledges with 2xx without acting again. A receiver that then fails
+// to process the event calls Forget on a Forgetter Replay so the sender's retry is accepted.
 func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 	if len(key) < MinKeyBytes {
 		return Event{}, ErrShortKey
@@ -206,9 +218,9 @@ type memoryReplay struct {
 	order  []string
 }
 
-// NewMemoryReplay returns a Replay that remembers up to max IDs for window. Use it when the
-// receiver has no table of processed events; a restart forgets everything, which is the
-// window's job to bound. Size max above the events one sender can emit in a window, or the
+// NewMemoryReplay returns a Replay that remembers up to max IDs for window; it also
+// implements Forgetter. Use it when the receiver has no table of processed events; a
+// restart forgets everything, which is the window's job to bound. Size max above the events one sender can emit in a window, or the
 // guard refuses under load.
 func NewMemoryReplay(window time.Duration, max int) Replay {
 	if window <= 0 {
@@ -243,6 +255,23 @@ func (m *memoryReplay) Check(id string, at time.Time) error {
 	return nil
 }
 
+// Forget drops id from both the map and the order, so the slot is free at once and a later
+// Check of the same ID starts a fresh entry instead of sharing the old one's position.
+func (m *memoryReplay) Forget(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.seen[id]; !ok {
+		return
+	}
+	delete(m.seen, id)
+	for i, v := range m.order {
+		if v == id {
+			m.order = append(m.order[:i], m.order[i+1:]...)
+			break
+		}
+	}
+}
+
 type ctxKey struct{}
 
 // EventFromContext returns the verified Event Middleware stored.
@@ -256,6 +285,18 @@ func EventFromContext(r *http.Request) (Event, bool) {
 // the sync secret for this request (one per deployment, or per sender); an error from it is
 // a 401 too, so an unconfigured receiver fails closed. Failures answer 401 with a fixed
 // body; the reason goes only to onReject, for the receiver's log.
+//
+// An event ID the Replay already accepted answers 200 {"status":"duplicate_event"} without
+// calling the handler: the sender's retry of an event that was processed is done, not a
+// signature failure. onReject still sees ErrReplay. When o.Replay is a Forgetter and the
+// handler answers anything but 2xx (or panics), Middleware forgets the ID so the sender's
+// retry runs the handler again. A retry that arrives while the first delivery is still
+// running is answered as a duplicate; if that first delivery then fails, the event is lost
+// to that sender, so keep handlers well inside the sender's request timeout. Event IDs are
+// unique per sender only: when keyFn serves several senders, give each its own Replay.
+// A Replay that is not a Forgetter is never released here, so the retry of a failed event
+// is acknowledged as a duplicate and lost; such a Replay must drop the ID itself when the
+// handler fails.
 func Middleware(keyFn func(r *http.Request) ([]byte, error), o Options, maxBody int64, onReject func(r *http.Request, err error)) func(http.Handler) http.Handler {
 	if maxBody <= 0 {
 		maxBody = DefaultMaxBody
@@ -285,12 +326,72 @@ func Middleware(keyFn func(r *http.Request) ([]byte, error), o Options, maxBody 
 				return
 			}
 			ev, err := Verify(key, FromRequest(r), body, o)
+			if errors.Is(err, ErrReplay) {
+				if onReject != nil {
+					onReject(r, err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":"duplicate_event"}`))
+				return
+			}
 			if err != nil {
 				reject(w, r, err)
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
-			next.ServeHTTP(w, r.WithContext(contextWith(r, ev)))
+			f, ok := o.Replay.(Forgetter)
+			if !ok {
+				next.ServeHTTP(w, r.WithContext(contextWith(r, ev)))
+				return
+			}
+			sw := &statusWriter{ResponseWriter: w}
+			processed := false
+			defer func() {
+				if !processed {
+					f.Forget(ev.ID)
+				}
+			}()
+			next.ServeHTTP(sw, r.WithContext(contextWith(r, ev)))
+			// A handler that returns without writing gets 200 from net/http.
+			processed = sw.status == 0 || (sw.status >= 200 && sw.status <= 299)
 		})
 	}
 }
+
+// statusWriter records the final (non-1xx) status the handler sent; 0 means none yet.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	if s.status == 0 && code >= 200 {
+		s.status = code
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusWriter) Write(b []byte) (int, error) {
+	if s.status == 0 {
+		s.status = http.StatusOK
+	}
+	return s.ResponseWriter.Write(b)
+}
+
+// Flush keeps http.Flusher working for handlers behind the wrapper. Only a flush that
+// happened sends the implicit 200, so only that one is recorded.
+func (s *statusWriter) Flush() { _ = s.FlushError() }
+
+// FlushError is what http.ResponseController calls, so its caller still sees a flush the
+// writer underneath cannot do.
+func (s *statusWriter) FlushError() error {
+	err := http.NewResponseController(s.ResponseWriter).Flush()
+	if err == nil && s.status == 0 {
+		s.status = http.StatusOK
+	}
+	return err
+}
+
+// Unwrap lets http.ResponseController reach Flush and deadlines on the real writer.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
