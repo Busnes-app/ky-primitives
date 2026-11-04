@@ -239,13 +239,3 @@ func TestSFTPTestFailsWhenPutCannotPublish(t *testing.T) {
 		t.Fatal("Test passed on a server that refuses every Put")
 	}
 }
-
-// A caller's large buffer must not hide progress from the idle budget for longer than one
-// bounded Read.
-func TestSessionReadsAreBounded(t *testing.T) {
-	r := &sessionReadCloser{ReadCloser: io.NopCloser(strings.NewReader(strings.Repeat("x", 3<<20))), cleanup: func() {}, cancel: func() {}, touch: func() {}}
-	n, err := r.Read(make([]byte, 4<<20))
-	if err != nil || n > maxSessionRead {
-		t.Fatalf("Read returned %d bytes (%v), want at most %d", n, err, maxSessionRead)
-	}
-}

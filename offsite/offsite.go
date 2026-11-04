@@ -15,16 +15,10 @@ import (
 )
 
 const (
-	pingName      = ".ky-offsite-ping"
-	stagingPrefix = ".ky-offsite-tmp-"
+	defaultTransferBudget = 5 * time.Minute
+	pingName              = ".ky-offsite-ping"
+	stagingPrefix         = ".ky-offsite-tmp-"
 )
-
-// defaultTransferBudget is how long a transfer with no Timeout may go without moving a
-// byte. A variable only so tests can shorten it. maxTransfer still ends a transfer that
-// trickles forever.
-var defaultTransferBudget = 5 * time.Minute
-
-const maxTransfer = 24 * time.Hour
 
 // ErrObjectExists is returned when a backend cannot safely replace an object.
 var ErrObjectExists = errors.New("offsite: object already exists")
@@ -46,9 +40,7 @@ type Config struct {
 	HostKey    string
 	S3Endpoint string
 	S3Region   string
-	// Timeout is a deadline for each whole transfer. Zero fails a transfer only after
-	// five minutes without progress, so large objects on slow links still complete.
-	Timeout time.Duration
+	Timeout    time.Duration
 }
 
 // Parse validates c and constructs its target.
@@ -185,23 +177,9 @@ func cleanPrefix(p string) (string, error) {
 	return cleanName(p)
 }
 
-// budget bounds one transfer. An explicit Timeout is a deadline for the whole transfer.
-// The default is a no-progress limit instead, renewed by touch whenever bytes move: a
-// capsule on a slow uplink takes longer than any fixed default, and a stalled peer still
-// fails after defaultTransferBudget. Expiry is the context's cause, DeadlineExceeded.
-func budget(ctx context.Context, timeout time.Duration) (_ context.Context, cancel, touch func()) {
-	if timeout != 0 {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		return ctx, cancel, func() {}
+func budget(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout == 0 {
+		timeout = defaultTransferBudget
 	}
-	ctx, end := context.WithTimeout(ctx, maxTransfer)
-	ctx, stop := context.WithCancelCause(ctx)
-	timer := time.AfterFunc(defaultTransferBudget, func() { stop(context.DeadlineExceeded) })
-	cancel = func() { timer.Stop(); stop(context.Canceled); end() }
-	touch = func() {
-		if ctx.Err() == nil {
-			timer.Reset(defaultTransferBudget)
-		}
-	}
-	return ctx, cancel, touch
+	return context.WithTimeout(ctx, timeout)
 }

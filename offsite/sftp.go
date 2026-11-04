@@ -146,14 +146,14 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	if err != nil {
 		return err
 	}
-	ctx, cancel, touch := budget(ctx, t.timeout)
+	ctx, cancel := budget(ctx, t.timeout)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return t.put(ctx, client, name, &contextReader{ctx: ctx, r: r, touch: touch})
+	return t.put(ctx, client, name, &contextReader{ctx: ctx, r: r})
 }
 
 // put stages and publishes one object over an open session; Put and Test share it so a
@@ -197,7 +197,7 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel, touch := budget(ctx, t.timeout)
+	ctx, cancel := budget(ctx, t.timeout)
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
 		cancel()
@@ -212,11 +212,11 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 		}
 		return nil, err
 	}
-	return &sessionReadCloser{ReadCloser: f, cleanup: cleanup, cancel: cancel, touch: touch}, nil
+	return &sessionReadCloser{ReadCloser: f, cleanup: cleanup, cancel: cancel}, nil
 }
 
 func (t *sftpTarget) Test(ctx context.Context) error {
-	ctx, cancel, _ := budget(ctx, t.timeout)
+	ctx, cancel := budget(ctx, t.timeout)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
@@ -231,24 +231,9 @@ func (t *sftpTarget) Test(ctx context.Context) error {
 
 type sessionReadCloser struct {
 	io.ReadCloser
-	cleanup       func()
-	cancel, touch func()
-	once          sync.Once
-}
-
-// maxSessionRead bounds one Read: SFTP and SMB fill a large buffer through many network
-// round trips before returning, and the budget only sees progress when a Read returns.
-const maxSessionRead = 1 << 20
-
-func (c *sessionReadCloser) Read(p []byte) (int, error) {
-	if len(p) > maxSessionRead {
-		p = p[:maxSessionRead]
-	}
-	n, err := c.ReadCloser.Read(p)
-	if n > 0 {
-		c.touch()
-	}
-	return n, err
+	cleanup func()
+	cancel  context.CancelFunc
+	once    sync.Once
 }
 
 func (c *sessionReadCloser) Close() (err error) {

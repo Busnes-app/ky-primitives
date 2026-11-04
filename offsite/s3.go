@@ -58,7 +58,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 	if err != nil {
 		return err
 	}
-	ctx, cancel, touch := budget(ctx, t.timeout)
+	ctx, cancel := budget(ctx, t.timeout)
 	defer cancel()
 	var body io.Reader
 	var size int64
@@ -69,7 +69,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 			return err
 		}
 		h := sha256.New()
-		size, err = io.Copy(h, &contextReader{ctx: ctx, r: seeker, touch: touch})
+		size, err = io.Copy(h, &contextReader{ctx: ctx, r: seeker})
 		if err != nil {
 			return fmt.Errorf("offsite: hash S3 upload: %w", err)
 		}
@@ -78,7 +78,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 		}
 		payloadHash, body = hex.EncodeToString(h.Sum(nil)), seeker
 	} else {
-		raw, err := io.ReadAll(&contextReader{ctx: ctx, r: r, touch: touch})
+		raw, err := io.ReadAll(&contextReader{ctx: ctx, r: r})
 		if err != nil {
 			return fmt.Errorf("offsite: read S3 upload: %w", err)
 		}
@@ -89,7 +89,7 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 	if err != nil {
 		return err
 	}
-	req.Body, req.ContentLength = io.NopCloser(&contextReader{ctx: ctx, r: body, touch: touch}), size
+	req.Body, req.ContentLength = io.NopCloser(body), size
 	if size == 0 {
 		// A non-nil body with ContentLength 0 is sent chunked, which S3 refuses.
 		req.Body = http.NoBody
@@ -110,7 +110,7 @@ func (t *s3Target) Get(ctx context.Context, name string) (io.ReadCloser, error) 
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel, touch := budget(ctx, t.timeout)
+	ctx, cancel := budget(ctx, t.timeout)
 	req, err := t.request(ctx, http.MethodGet, name, "UNSIGNED-PAYLOAD")
 	if err != nil {
 		cancel()
@@ -132,7 +132,7 @@ func (t *s3Target) Get(ctx context.Context, name string) (io.ReadCloser, error) 
 		cancel()
 		return nil, err
 	}
-	return &cancelReadCloser{ReadCloser: resp.Body, cancel: cancel, touch: touch}, nil
+	return &cancelReadCloser{ReadCloser: resp.Body, cancel: cancel}, nil
 }
 
 func (t *s3Target) Test(ctx context.Context) error {
@@ -174,15 +174,7 @@ func responseError(op string, resp *http.Response) error {
 
 type cancelReadCloser struct {
 	io.ReadCloser
-	cancel, touch func()
-}
-
-func (c *cancelReadCloser) Read(p []byte) (int, error) {
-	n, err := c.ReadCloser.Read(p)
-	if n > 0 {
-		c.touch()
-	}
-	return n, err
+	cancel context.CancelFunc
 }
 
 func (c *cancelReadCloser) Close() error {
