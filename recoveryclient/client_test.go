@@ -21,7 +21,7 @@ func jsonResponse(status int, v any) *http.Response {
 }
 
 func TestValidateURLRefusesPrivateByDefault(t *testing.T) {
-	for _, u := range []string{"https://100.64.0.1", "https://192.0.0.9", "https://198.18.0.1", "https://240.0.0.1", "https://[64:ff9b::a00:1]", "https://192.168.1.91", "https://10.0.0.5", "https://127.0.0.1"} {
+	for _, u := range []string{"https://100.64.0.1", "https://192.0.0.9", "https://198.18.0.1", "https://240.0.0.1", "https://[64:ff9b::a00:1]", "https://[64:ff9b:1::a00:1]", "https://192.168.1.91", "https://10.0.0.5", "https://127.0.0.1"} {
 		if err := ValidateURL(u, false); err == nil {
 			t.Errorf("%s accepted", u)
 		}

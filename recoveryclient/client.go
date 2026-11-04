@@ -144,8 +144,9 @@ func allowedIP(ip net.IP, allowPrivate bool) bool {
 
 // reservedRanges are the special-purpose blocks net.IP's own predicates miss and that no
 // KyRecovery ever lives in, opt-in or not: "this" network, IETF protocol assignments,
-// benchmarking, class E, the NAT64 well-known prefix, and deprecated IPv6 site-local.
-var reservedRanges = mustCIDRs("0.0.0.0/8", "192.0.0.0/24", "198.18.0.0/15", "240.0.0.0/4", "64:ff9b::/96", "fec0::/10")
+// benchmarking, class E, the NAT64 well-known and local-use prefixes, and deprecated IPv6
+// site-local.
+var reservedRanges = mustCIDRs("0.0.0.0/8", "192.0.0.0/24", "198.18.0.0/15", "240.0.0.0/4", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10")
 
 // cgnatRange is carrier-grade NAT, which is also every Tailscale address. Refused by default
 // like the private ranges, admitted with them under BackupAllowPrivateRecovery.

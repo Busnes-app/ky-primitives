@@ -83,25 +83,45 @@ func (c *Client) FindUser(ctx context.Context, attribute, value string) (User, e
 	if attribute != "externalId" && attribute != "userName" {
 		return User{}, fmt.Errorf("scim: FindUser supports externalId and userName, not %q", attribute)
 	}
+	// An empty value would match a user without the attribute and pass the check below.
+	if strings.TrimSpace(value) == "" {
+		return User{}, fmt.Errorf("scim: FindUser needs a %s to look for", attribute)
+	}
 	quoted := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value)
 	u, err := c.endpoint(attribute+` eq "`+quoted+`"`, "Users")
 	if err != nil {
 		return User{}, err
 	}
 	var list struct {
-		TotalResults int    `json:"totalResults"`
-		Resources    []User `json:"Resources"`
+		TotalResults *int    `json:"totalResults"`
+		Resources    *[]User `json:"Resources"`
 	}
 	if err := c.do(ctx, http.MethodGet, u, nil, &list); err != nil {
 		return User{}, err
 	}
-	switch {
-	case len(list.Resources) == 0:
-		return User{}, ErrNotFound
-	case len(list.Resources) > 1 || list.TotalResults > 1:
-		return User{}, ErrAmbiguous
+	// Not found is a list that says so. An empty or foreign body, or a page that counts
+	// matches it does not carry, must not read as "no such user": the caller would create a
+	// duplicate or skip a deactivation.
+	if list.TotalResults == nil && list.Resources == nil {
+		return User{}, fmt.Errorf("%w: not a list response", ErrMalformedResponse)
 	}
-	found := list.Resources[0]
+	var resources []User
+	if list.Resources != nil {
+		resources = *list.Resources
+	}
+	total := len(resources)
+	if list.TotalResults != nil {
+		total = *list.TotalResults
+	}
+	switch {
+	case len(resources) > 1 || total > 1:
+		return User{}, ErrAmbiguous
+	case len(resources) == 0 && total == 0:
+		return User{}, ErrNotFound
+	case len(resources) == 0:
+		return User{}, fmt.Errorf("%w: list reports %d matches and carries none", ErrMalformedResponse, total)
+	}
+	found := resources[0]
 	// userName is not caseExact in the core schema; externalId is.
 	if attribute == "externalId" && found.ExternalID != value || attribute == "userName" && !strings.EqualFold(found.UserName, value) {
 		return User{}, fmt.Errorf("%w: the user returned does not match the filter", ErrMalformedResponse)
@@ -219,7 +239,7 @@ func (c *Client) do(ctx context.Context, method, target string, in, out any) err
 	// Go would replay the body, and the bearer, wherever the server pointed.
 	client := *base
 	client.CheckRedirect = func(r *http.Request, _ []*http.Request) error {
-		return fmt.Errorf("scim: server redirected to %s; redirects are refused", r.URL.Redacted())
+		return fmt.Errorf("scim: server redirected to %s://%s%s; redirects are refused", r.URL.Scheme, r.URL.Host, r.URL.Path)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

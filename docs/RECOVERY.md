@@ -35,8 +35,9 @@ The 0x11d copies also had three ways to fail on a malformed share, all reachable
 `FuzzCombineNeverPanics` holds that line. Distinct non-zero indices make every Lagrange
 denominator non-zero, so no input can divide by zero however malformed.
 
-`Split` resamples a zero leading coefficient. Without it the polynomial's degree drops and
-fewer shares than promised recover that byte, once every 256 draws.
+`Split` never resamples a zero leading coefficient. A uniformly random top coefficient, zero
+included, keeps threshold-1 shares independent of the secret; refusing zero would rule out one
+secret value per byte for anyone holding threshold-1 shares.
 
 ```go
 shares, err := shamir.Split(key, 3, 5)   // any 3 of 5
