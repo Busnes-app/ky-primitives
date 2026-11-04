@@ -18,10 +18,6 @@ Keep unpublished changes separate from tagged releases.
   fail with `ErrUnknownKey` for `MinRefresh`. Every caller waiting on the fetch,
   including one that arrives while it is in flight, still stops at its own
   deadline; an `HTTPClient` without a timeout is capped at 30 seconds.
-- Root: the `NewMemoryReplay` guard keeps each event ID until its timestamp leaves
-  the wider of the guard's window and `Options.Window` (boundary included, on
-  `Options.Now`); a wider verify window no longer lets an event replay once the
-  guard forgets it.
 - Root: `recoveryclient.WriteLocalCopy` never prunes the copy it just wrote, even
   when older copies carry later modification times. The KyRecovery client tries
   every allowed address instead of only the first.

@@ -143,9 +143,7 @@ type Options struct {
 	// Now is the receiver's clock; nil means time.Now.
 	Now func() time.Time
 	// Replay, when set, is asked whether the event ID was already accepted inside the
-	// window; a receiver with a table supplies its own, others use NewMemoryReplay. A guard
-	// must remember an ID for at least Window, or the event replays once it is forgotten;
-	// the NewMemoryReplay guard is held to Window and Now automatically.
+	// window; a receiver with a table supplies its own, others use NewMemoryReplay.
 	Replay Replay
 }
 
@@ -173,54 +171,45 @@ func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 	if err != nil {
 		return Event{}, ErrBadTimestamp
 	}
-	// One reading of the clock for the window check and the replay guard: two readings
-	// could straddle an expiry and let the guard forget an ID the window still accepted.
-	clock := time.Now
+	now := time.Now
 	if o.Now != nil {
-		clock = o.Now
+		now = o.Now
 	}
-	now := clock()
 	window := o.Window
 	if window == 0 {
 		window = DefaultWindow
 	}
-	if d := now.Sub(at); d > window || d < -window {
-		return Event{}, fmt.Errorf("%w: event %s, receiver %s", ErrStale, at.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	if d := now().Sub(at); d > window || d < -window {
+		return Event{}, fmt.Errorf("%w: event %s, receiver %s", ErrStale, at.UTC().Format(time.RFC3339), now().UTC().Format(time.RFC3339))
 	}
 	want := mac(key, canonical(h.Timestamp, h.EventType, h.EventID, body))
 	if !hmac.Equal([]byte(h.Signature), []byte(want)) {
 		return Event{}, ErrBadSignature
 	}
 	if o.Replay != nil {
-		var err error
-		if m, ok := o.Replay.(*memoryReplay); ok {
-			err = m.check(h.EventID, at, now, window)
-		} else {
-			err = o.Replay.Check(h.EventID, at)
-		}
-		if err != nil {
+		if err := o.Replay.Check(h.EventID, at); err != nil {
 			return Event{}, err
 		}
 	}
 	return Event{Type: h.EventType, ID: h.EventID, At: at}, nil
 }
 
-// memoryReplay is a bounded in-process replay guard. It forgets an ID only once the
-// timestamp it was accepted with has left the window it was accepted under; when it holds
-// max IDs that are all still inside their windows it refuses with ErrReplayGuardFull rather
-// than forgetting one, because a forgotten ID is a replay the signature alone cannot stop.
+// memoryReplay is a bounded in-process replay guard. It forgets IDs only once their
+// timestamp has left the window; when it holds max IDs that are all still inside the window
+// it refuses with ErrReplayGuardFull rather than forgetting one, because a forgotten ID is a
+// replay the signature alone cannot stop.
 type memoryReplay struct {
 	mu     sync.Mutex
 	window time.Duration
 	max    int
-	expiry map[string]time.Time // id -> last instant Verify could still accept it
+	seen   map[string]time.Time
 	order  []string
 }
 
-// NewMemoryReplay returns a Replay that remembers up to max IDs for window, or for
-// Options.Window when Verify uses a wider one. Use it when the receiver has no table of
-// processed events; a restart forgets everything, which is the window's job to bound. Size
-// max above the events one sender can emit in a window, or the guard refuses under load.
+// NewMemoryReplay returns a Replay that remembers up to max IDs for window. Use it when the
+// receiver has no table of processed events; a restart forgets everything, which is the
+// window's job to bound. Size max above the events one sender can emit in a window, or the
+// guard refuses under load.
 func NewMemoryReplay(window time.Duration, max int) Replay {
 	if window <= 0 {
 		window = DefaultWindow
@@ -228,47 +217,28 @@ func NewMemoryReplay(window time.Duration, max int) Replay {
 	if max <= 0 {
 		max = 10000
 	}
-	return &memoryReplay{window: window, max: max, expiry: map[string]time.Time{}}
+	return &memoryReplay{window: window, max: max, seen: map[string]time.Time{}}
 }
 
 func (m *memoryReplay) Check(id string, at time.Time) error {
-	return m.check(id, at, time.Now(), m.window)
-}
-
-// check keeps each ID until at+window, with window the wider of the guard's and the
-// caller's, and compares on the caller's clock. Verify accepts |now-at| <= window, so an ID
-// is forgotten only once no Verify under that window could accept its timestamp again.
-func (m *memoryReplay) check(id string, at, now time.Time, window time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	cutoff := time.Now().Add(-m.window)
 	for len(m.order) > 0 {
 		oldest := m.order[0]
-		if exp, ok := m.expiry[oldest]; ok && !exp.Before(now) {
+		if t, ok := m.seen[oldest]; ok && t.After(cutoff) {
 			break
 		}
-		delete(m.expiry, oldest)
+		delete(m.seen, oldest)
 		m.order = m.order[1:]
 	}
-	if _, ok := m.expiry[id]; ok {
+	if _, ok := m.seen[id]; ok {
 		return ErrReplay
 	}
 	if len(m.order) >= m.max {
-		// Insertion order is not expiry order when windows differ, so expired IDs can sit
-		// behind a live one; reclaim them before refusing.
-		live := m.order[:0]
-		for _, seen := range m.order {
-			if m.expiry[seen].Before(now) {
-				delete(m.expiry, seen)
-			} else {
-				live = append(live, seen)
-			}
-		}
-		m.order = live
-		if len(m.order) >= m.max {
-			return ErrReplayGuardFull
-		}
+		return ErrReplayGuardFull
 	}
-	m.expiry[id] = at.Add(max(window, m.window))
+	m.seen[id] = at
 	m.order = append(m.order, id)
 	return nil
 }
