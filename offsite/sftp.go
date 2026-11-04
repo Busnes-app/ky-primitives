@@ -236,7 +236,14 @@ type sessionReadCloser struct {
 	once          sync.Once
 }
 
+// maxSessionRead bounds one Read: SFTP and SMB fill a large buffer through many network
+// round trips before returning, and the budget only sees progress when a Read returns.
+const maxSessionRead = 1 << 20
+
 func (c *sessionReadCloser) Read(p []byte) (int, error) {
+	if len(p) > maxSessionRead {
+		p = p[:maxSessionRead]
+	}
 	n, err := c.ReadCloser.Read(p)
 	if n > 0 {
 		c.touch()

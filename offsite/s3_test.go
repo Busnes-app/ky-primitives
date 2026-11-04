@@ -216,7 +216,7 @@ func TestS3EmptyPutSendsContentLength(t *testing.T) {
 // object on a slow link used to be cut off at five minutes on every attempt.
 func TestDefaultBudgetAllowsSlowTransfersAndStopsStalls(t *testing.T) {
 	saved := defaultTransferBudget
-	defaultTransferBudget = 300 * time.Millisecond
+	defaultTransferBudget = 500 * time.Millisecond
 	defer func() { defaultTransferBudget = saved }()
 	stall := make(chan struct{})
 	defer close(stall)
@@ -230,10 +230,10 @@ func TestDefaultBudgetAllowsSlowTransfersAndStopsStalls(t *testing.T) {
 			}
 			return
 		}
-		for i := 0; i < 8; i++ {
+		for i := 0; i < 16; i++ {
 			_, _ = w.Write([]byte("chunk"))
 			w.(http.Flusher).Flush()
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(60 * time.Millisecond)
 		}
 	}))
 	defer server.Close()
@@ -247,7 +247,7 @@ func TestDefaultBudgetAllowsSlowTransfersAndStopsStalls(t *testing.T) {
 	}
 	raw, err := io.ReadAll(r)
 	_ = r.Close()
-	if err != nil || len(raw) != 40 {
+	if err != nil || len(raw) != 80 {
 		t.Fatalf("slow but steady Get = %d bytes, %v", len(raw), err)
 	}
 	r, err = target.Get(context.Background(), "stalled")

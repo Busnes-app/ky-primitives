@@ -89,8 +89,8 @@ type contextReader struct {
 }
 
 func (r *contextReader) Read(p []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
+	if r.ctx.Err() != nil {
+		return 0, context.Cause(r.ctx)
 	}
 	n, err := r.r.Read(p)
 	if n > 0 && r.touch != nil {
