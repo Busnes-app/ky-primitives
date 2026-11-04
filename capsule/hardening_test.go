@@ -202,3 +202,52 @@ func TestSafeRelPathAccepts(t *testing.T) {
 		}
 	}
 }
+
+// sparseMember is a PAX header block declaring a GNU sparse file of size bytes that is all
+// hole, followed by its zero-length body's header: a few hundred bytes of tar stream that the
+// reader expands to size zeros.
+func sparseMember(t *testing.T, name string, size int64) []byte {
+	t.Helper()
+	var pax string
+	for _, kv := range [][2]string{{"GNU.sparse.major", "0"}, {"GNU.sparse.minor", "1"}, {"GNU.sparse.numblocks", "0"}, {"GNU.sparse.size", fmt.Sprint(size)}, {"GNU.sparse.map", ""}} {
+		rec := fmt.Sprintf(" %s=%s\n", kv[0], kv[1])
+		n := len(rec) + 1
+		for len(fmt.Sprintf("%d%s", n, rec)) != n {
+			n++
+		}
+		pax += fmt.Sprintf("%d%s", n, rec)
+	}
+	block := func(h *tar.Header, flag byte) []byte {
+		var b bytes.Buffer
+		tw := tar.NewWriter(&b)
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+		blk := b.Bytes()[:512]
+		if flag != 0 {
+			blk[156] = flag
+			copy(blk[148:156], "        ")
+			sum := 0
+			for _, c := range blk {
+				sum += int(c)
+			}
+			copy(blk[148:], fmt.Sprintf("%06o\x00 ", sum))
+		}
+		return blk
+	}
+	out := block(&tar.Header{Typeflag: tar.TypeReg, Name: "pax", Size: int64(len(pax)), Format: tar.FormatUSTAR}, tar.TypeXHeader)
+	out = append(out, pax...)
+	out = append(out, make([]byte, (512-len(pax)%512)%512)...)
+	return append(out, block(&tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: 0600, Format: tar.FormatUSTAR}, 0)...)
+}
+
+func TestExtractRejectsSparseFiles(t *testing.T) {
+	stream := append(sparseMember(t, "keys/a.key", MaxFileBytes), make([]byte, 1024)...)
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(stream)
+	zw.Close()
+	if _, _, err := extractPayload(gz.Bytes(), ""); !errors.Is(err, ErrCapsuleEntryType) {
+		t.Fatalf("a sparse member must be refused, got %v", err)
+	}
+}

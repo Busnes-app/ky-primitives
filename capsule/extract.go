@@ -108,6 +108,14 @@ func extractPayload(payload []byte, targetDir string) ([]File, []FileEntry, erro
 		if hdr.Typeflag != tar.TypeReg {
 			return nil, nil, fmt.Errorf("%w: %s (type %q)", ErrCapsuleEntryType, hdr.Name, string(hdr.Typeflag))
 		}
+		// A PAX sparse file is TypeReg too, but the reader fills its holes with zeros after the
+		// expansion budget has counted the stream: a few KiB of headers became 64 MiB each.
+		// Seal never writes one.
+		for k := range hdr.PAXRecords {
+			if strings.HasPrefix(k, "GNU.sparse.") {
+				return nil, nil, fmt.Errorf("%w: %s (sparse)", ErrCapsuleEntryType, hdr.Name)
+			}
+		}
 
 		// Before the file count, because the list is not one of the files: a capsule
 		// holding exactly MaxFiles members plus its list is one Seal writes.
