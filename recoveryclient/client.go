@@ -20,9 +20,13 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 )
 
-// uploadTimeout bounds one deposit. A container is at most 384 MiB and kyrecovery gives the
-// read fifteen minutes; the claim keeps the short timeout because it carries a few hundred bytes.
-const uploadTimeout = 15 * time.Minute
+// A deposit ends when no bytes of the container have moved for depositIdle, and after
+// depositMax whatever happens. A container is at most 384 MiB, which no fixed budget fits on
+// every uplink: 15 minutes needed about 3.6 Mbit/s. The claim keeps the client's short timeout
+// because it carries a few hundred bytes.
+var depositIdle = 5 * time.Minute
+
+const depositMax = 24 * time.Hour
 
 // Client is the product half of the pairing and deposit contract.
 type Client struct {
@@ -268,17 +272,29 @@ type Receipt struct {
 // digest is checked against the bytes sent so a deposit counts only when kyrecovery stored
 // exactly what left here. 200 is kyrecovery re-sending the receipt for bytes it already
 // holds, which is a success.
+//
+// The upload is ended after five minutes in which no bytes moved, or after 24 hours; either
+// ending returns an error matching context.DeadlineExceeded.
 func (c *Client) Deposit(ctx context.Context, serverURL, apiToken string, container []byte) (Receipt, error) {
 	u, err := endpoint(serverURL, "/api/backup/deposit", c.allowPrivate)
 	if err != nil {
 		return Receipt{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, uploadTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(container))
+	ctx, end := context.WithTimeout(ctx, depositMax)
+	defer end()
+	ctx, stop := context.WithCancelCause(ctx)
+	defer stop(context.Canceled)
+	idle := time.AfterFunc(depositIdle, func() { stop(context.DeadlineExceeded) })
+	defer idle.Stop()
+	body := func() io.ReadCloser {
+		return io.NopCloser(&progressReader{r: bytes.NewReader(container), touch: func() { idle.Reset(depositIdle) }})
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body())
 	if err != nil {
 		return Receipt{}, err
 	}
+	req.ContentLength = int64(len(container))
+	req.GetBody = func() (io.ReadCloser, error) { return body(), nil }
 	req.Header.Set("Authorization", "Bearer "+apiToken)
 	req.Header.Set("Content-Type", "application/octet-stream")
 
@@ -287,6 +303,9 @@ func (c *Client) Deposit(ctx context.Context, serverURL, apiToken string, contai
 	upload.Timeout = 0
 	resp, err := upload.Do(req)
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
+			err = fmt.Errorf("%w: %w", cause, err)
+		}
 		return Receipt{}, fmt.Errorf("%w: deposit request failed: %w", ErrRemote, err)
 	}
 	defer resp.Body.Close()
@@ -308,6 +327,20 @@ func (c *Client) Deposit(ctx context.Context, serverURL, apiToken string, contai
 		return Receipt{}, fmt.Errorf("%w: deposit receipt has no capsule_id", ErrRemote)
 	}
 	return rcpt, nil
+}
+
+// progressReader calls touch whenever a read of the container moves bytes.
+type progressReader struct {
+	r     io.Reader
+	touch func()
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.touch()
+	}
+	return n, err
 }
 
 // auditTextLimit bounds any text that reaches the audit log from outside the process.
