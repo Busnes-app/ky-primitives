@@ -13,6 +13,18 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `recoveryclient.SplitFile` seals a file larger than one capsule member
+  (64 MiB), such as a large SQLite snapshot, as ordered parts `<path>.000-of-NNN`, and
+  `recoveryclient.JoinSplitFiles` reassembles them after `Restore` or in a drill's checks
+  (new `ErrSplitParts`). Opt-in: `Restore` and `Drill` are unchanged, and a capsule
+  without parts restores as before. The names match kydrive-server's own parts.
+- Root: `recoveryclient.Client.Deposit` ends an upload after five minutes without progress
+  or 24 hours, instead of 15 minutes for the whole upload, so a large capsule on a slow
+  uplink completes; expiry matches `context.DeadlineExceeded`. KyRecovery-server needs its
+  matching per-chunk deadline for this to help past 15 minutes.
+- Root: `scim.Client.CreateUser` and `ReplaceUser` always send `roles`, as `[]` when the
+  user has none, so a replace revokes a last role at a server that keeps omitted
+  attributes. `scim.User` documents that an absent `active` decodes as false.
 - Root (minor): `syncauth.Middleware` answers a replayed event ID with 200
   `{"status":"duplicate_event"}` instead of 401 `invalid_signature`, and, when the
   `Replay` implements the new `syncauth.Forgetter` (the `NewMemoryReplay` guard does),

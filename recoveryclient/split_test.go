@@ -1,0 +1,151 @@
+package recoveryclient
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
+)
+
+func lowerSplit(t *testing.T, n int) {
+	old := splitPartBytes
+	splitPartBytes = n
+	t.Cleanup(func() { splitPartBytes = old })
+}
+
+// bigPayload is testPayload with a database that needs three parts at 8-byte parts.
+func bigPayload() (Payload, []byte) {
+	db := []byte("SQLite format 3\x00 a database past one member")[:20]
+	p := testPayload()
+	p.Files = append(SplitFile(File{Path: "data/app.db", Data: db, Mode: 0600}), p.Files[1:]...)
+	return p, db
+}
+
+func TestSplitFileLeavesAFileThatFitsAlone(t *testing.T) {
+	f := File{Path: "data/app.db", Data: []byte("small"), Mode: 0600}
+	if got := SplitFile(f); len(got) != 1 || got[0].Path != f.Path || !bytes.Equal(got[0].Data, f.Data) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestSplitFileNamesOrderedParts(t *testing.T) {
+	lowerSplit(t, 8)
+	p, db := bigPayload()
+	want := []string{"data/app.db.000-of-003", "data/app.db.001-of-003", "data/app.db.002-of-003"}
+	var joined []byte
+	for i, w := range want {
+		if p.Files[i].Path != w || p.Files[i].Mode != 0600 || len(p.Files[i].Data) > 8 {
+			t.Fatalf("part %d: %+v", i, p.Files[i])
+		}
+		joined = append(joined, p.Files[i].Data...)
+	}
+	if !bytes.Equal(joined, db) {
+		t.Fatalf("parts do not add up: %q", joined)
+	}
+}
+
+func TestSplitDatabaseRestoresAndJoins(t *testing.T) {
+	lowerSplit(t, 8)
+	p, db := bigPayload()
+	priv, k := testKey(t)
+	shares, err := recoverykey.Split(priv, 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := Seal(p, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capsulePath := filepath.Join(t.TempDir(), "x.kycap")
+	if err := os.WriteFile(capsulePath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "out")
+	if err := Restore(capsulePath, target, "Svc", []string{shares[0].String(), shares[2].String()}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := JoinSplitFiles(target, "data/app.db"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "data", "app.db"))
+	if err != nil || !bytes.Equal(got, db) {
+		t.Fatalf("joined database %q, %v", got, err)
+	}
+	if info, _ := os.Stat(filepath.Join(target, "data", "app.db")); info.Mode().Perm() != 0600 {
+		t.Errorf("mode %v", info.Mode())
+	}
+	entries, _ := os.ReadDir(filepath.Join(target, "data"))
+	if len(entries) != 2 {
+		t.Errorf("parts or scratch left behind: %v", entries)
+	}
+	// Joining again finds no parts and leaves the database alone.
+	if err := JoinSplitFiles(target, "data/app.db"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSplitDatabaseDrills(t *testing.T) {
+	lowerSplit(t, 8)
+	p, db := bigPayload()
+	res, err := Drill(context.Background(), t.TempDir(), p, func(dir string, _ capsule.Manifest) []Check {
+		if err := JoinSplitFiles(dir, "data/app.db"); err != nil {
+			return []Check{{Name: "join", Message: err.Error()}}
+		}
+		got, err := os.ReadFile(filepath.Join(dir, "data", "app.db"))
+		return []Check{{Name: "db", Passed: err == nil && bytes.Equal(got, db)}}
+	})
+	if err != nil || !res.Passed {
+		t.Fatalf("%v %+v", err, res)
+	}
+}
+
+func TestJoinSplitFilesWithoutPartsChangesNothing(t *testing.T) {
+	dir := t.TempDir()
+	if err := JoinSplitFiles(dir, "data/app.db"); err != nil {
+		t.Fatalf("missing directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"app.db", "app.db.bak", "app.db.000"} {
+		if err := os.WriteFile(filepath.Join(dir, "data", name), []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := JoinSplitFiles(dir, "data/app.db"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "data", "app.db")); string(got) != "app.db" {
+		t.Fatalf("whole file changed: %q", got)
+	}
+}
+
+func TestJoinSplitFilesRefusesPartsThatDoNotAddUp(t *testing.T) {
+	for name, files := range map[string][]string{
+		"missing part":      {"app.db.000-of-003", "app.db.002-of-003"},
+		"missing last part": {"app.db.000-of-003", "app.db.001-of-003"},
+		"mixed counts":      {"app.db.000-of-002", "app.db.001-of-003"},
+		"beside whole":      {"app.db", "app.db.000-of-002", "app.db.001-of-002"},
+		"renumbered":        {"app.db.001-of-002", "app.db.002-of-002"},
+	} {
+		dir := t.TempDir()
+		for _, f := range files {
+			if err := os.WriteFile(filepath.Join(dir, f), []byte(f), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := JoinSplitFiles(dir, "app.db"); !errors.Is(err, ErrSplitParts) {
+			t.Errorf("%s: want ErrSplitParts, got %v", name, err)
+		}
+		if name != "beside whole" {
+			if _, err := os.Stat(filepath.Join(dir, "app.db")); !os.IsNotExist(err) {
+				t.Errorf("%s: a partial database was written", name)
+			}
+		}
+	}
+}

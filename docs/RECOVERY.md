@@ -173,6 +173,16 @@ What it pins, each by a named test:
   temp dir), wipes it, and sweeps a killed drill's residue first
   (`TestDrillOpensWhatItSealedAndWipesScratch`, `TestDrillUsesTheCallerScratchRoot`). `Restore` checks the
   manifest's service name before combining shares (`TestRestoreRefusesOtherServiceBeforeCombine`).
+- A file over one member (`MaxCapsuleFileBytes`, 64 MiB), in practice a large database
+  snapshot, goes into the payload through `SplitFile` as ordered parts `<path>.000-of-NNN`;
+  after `Restore`, and inside the drill's checks, the product calls `JoinSplitFiles(dir, path)`
+  before opening it. A capsule without parts restores as before, and missing, renumbered or
+  extra parts are `ErrSplitParts` (`TestSplitDatabaseRestoresAndJoins`,
+  `TestSplitDatabaseDrills`, `TestJoinSplitFilesRefusesPartsThatDoNotAddUp`). The whole
+  capsule stays within `MaxCapsuleTotalBytes`.
+- `Deposit` ends an upload after five minutes in which no bytes moved, or after 24 hours,
+  with an error matching `context.DeadlineExceeded`; a large capsule on a slow uplink
+  completes while it keeps moving (`TestDepositBudgetRenewsOnProgressAndEndsAStall`).
 - `SQLiteSnapshot` copies through the live handle with `VACUUM INTO`; copying the file misses
   every commit still in the write-ahead log. The lib has no SQLite driver, so the
   row-in-the-WAL case is proven in each product's tests.
