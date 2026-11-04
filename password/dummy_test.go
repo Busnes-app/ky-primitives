@@ -172,6 +172,8 @@ func TestDummyVerifySurvivesAFullyHeldBudget(t *testing.T) {
 func TestVerifyRejectsOversizedStoredHashesCheaply(t *testing.T) {
 	huge := []string{
 		strings.Repeat("$", 1<<20),
+		"$argon2id$v=19$" + strings.Repeat(",", 1<<20) + "$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
+		"$argon2id$" + strings.Repeat("\x01", 1<<20) + "$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",
 		"$argon2id$v=19$m=65536,t=3,p=4$" + strings.Repeat("A", 1<<20) + "$" + strings.Repeat("A", 43),
 	}
 	for _, encoded := range huge {

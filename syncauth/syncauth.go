@@ -294,6 +294,9 @@ func EventFromContext(r *http.Request) (Event, bool) {
 // running is answered as a duplicate; if that first delivery then fails, the event is lost
 // to that sender, so keep handlers well inside the sender's request timeout. Event IDs are
 // unique per sender only: when keyFn serves several senders, give each its own Replay.
+// A Replay that is not a Forgetter is never released here, so the retry of a failed event
+// is acknowledged as a duplicate and lost; such a Replay must drop the ID itself when the
+// handler fails.
 func Middleware(keyFn func(r *http.Request) ([]byte, error), o Options, maxBody int64, onReject func(r *http.Request, err error)) func(http.Handler) http.Handler {
 	if maxBody <= 0 {
 		maxBody = DefaultMaxBody
@@ -374,6 +377,14 @@ func (s *statusWriter) Write(b []byte) (int, error) {
 		s.status = http.StatusOK
 	}
 	return s.ResponseWriter.Write(b)
+}
+
+// Flush keeps http.Flusher working for handlers behind the wrapper.
+func (s *statusWriter) Flush() {
+	if s.status == 0 {
+		s.status = http.StatusOK
+	}
+	_ = http.NewResponseController(s.ResponseWriter).Flush()
 }
 
 // Unwrap lets http.ResponseController reach Flush and deadlines on the real writer.

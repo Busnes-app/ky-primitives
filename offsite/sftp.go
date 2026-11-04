@@ -152,7 +152,7 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
-		return err
+		return expired(ctx, err)
 	}
 	defer cleanup()
 	return expired(ctx, t.put(ctx, client, name, &contextReader{ctx: ctx, r: r, touch: touch}))
@@ -202,6 +202,7 @@ func (t *sftpTarget) Get(ctx context.Context, name string) (io.ReadCloser, error
 	ctx, cancel, touch := budget(ctx, t.timeout)
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
+		err = expired(ctx, err)
 		cancel()
 		return nil, err
 	}
@@ -223,7 +224,7 @@ func (t *sftpTarget) Test(ctx context.Context) error {
 	defer cancel()
 	client, cleanup, err := t.dial(ctx)
 	if err != nil {
-		return err
+		return expired(ctx, err)
 	}
 	defer cleanup()
 	if err := t.put(ctx, client, pingName, &contextReader{ctx: ctx, r: strings.NewReader("ping")}); err != nil {

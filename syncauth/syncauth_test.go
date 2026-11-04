@@ -238,18 +238,22 @@ func TestMiddlewareReleasesFailedEventsAndAcksDuplicates(t *testing.T) {
 }
 
 func TestMemoryReplayForgetFreesTheSlot(t *testing.T) {
-	rp := NewMemoryReplay(time.Minute, 1).(Forgetter)
+	// The forgotten ID is not at the head, so only removing it from the order frees its
+	// slot; the head sweep would not.
+	rp := NewMemoryReplay(time.Minute, 2).(Forgetter)
 	now := time.Now()
-	if err := rp.Check("a", now); err != nil {
-		t.Fatal(err)
+	for _, id := range []string{"a", "b"} {
+		if err := rp.Check(id, now); err != nil {
+			t.Fatal(err)
+		}
 	}
-	rp.Forget("a")
+	rp.Forget("b")
 	rp.Forget("never-seen")
-	if err := rp.Check("b", now); err != nil {
+	if err := rp.Check("c", now); err != nil {
 		t.Fatalf("forgotten ID still holds the slot: %v", err)
 	}
-	if err := rp.Check("b", now); !errors.Is(err, ErrReplay) {
-		t.Fatalf("replay after forget: %v", err)
+	if err := rp.Check("a", now); !errors.Is(err, ErrReplay) {
+		t.Fatalf("forget dropped another ID: %v", err)
 	}
 }
 
@@ -267,4 +271,25 @@ func FuzzVerify(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestMiddlewareKeepsFlusherBehindAForgetter(t *testing.T) {
+	body := []byte("x")
+	flushed := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f, ok := w.(http.Flusher)
+		if ok {
+			f.Flush()
+		}
+		flushed = ok
+	})
+	srv := Middleware(func(*http.Request) ([]byte, error) { return key, nil }, Options{Replay: NewMemoryReplay(0, 0)}, 0, nil)(next)
+	h, _ := Sign(key, time.Now(), "t", "evt-f", body)
+	req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+	h.Apply(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if !flushed || !w.Flushed || w.Code != http.StatusOK {
+		t.Fatalf("flusher %v, recorder flushed %v, code %d", flushed, w.Flushed, w.Code)
+	}
 }

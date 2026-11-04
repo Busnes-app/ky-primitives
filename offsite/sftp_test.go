@@ -213,11 +213,19 @@ func stalledAddress(t *testing.T) string {
 func TestSFTPStallHonorsBudget(t *testing.T) {
 	target := &sftpTarget{addr: stalledAddress(t), user: "ky", secret: "pw", dir: "/x", hostKey: "SHA256:x", timeout: 200 * time.Millisecond}
 	start := time.Now()
-	if err := target.Put(context.Background(), "object", strings.NewReader("x"), 1); err == nil {
-		t.Fatal("stalled server returned no error")
+	if err := target.Put(context.Background(), "object", strings.NewReader("x"), 1); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stalled server: %v, want context.DeadlineExceeded", err)
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("operation took %s", elapsed)
+	}
+	// The default budget, expiring during the handshake, reports the same.
+	saved := defaultTransferBudget
+	defaultTransferBudget = 200 * time.Millisecond
+	defer func() { defaultTransferBudget = saved }()
+	target.timeout = 0
+	if _, err := target.Get(context.Background(), "object"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stalled Get under the default budget: %v, want context.DeadlineExceeded", err)
 	}
 }
 
