@@ -43,7 +43,9 @@ Keep unpublished changes separate from tagged releases.
   including one that arrives while it is in flight, still stops at its own
   deadline; an `HTTPClient` without a timeout is capped at 30 seconds.
 - Root: `recoveryclient.WriteLocalCopy` never prunes the copy it just wrote, even
-  when older copies carry later modification times. The KyRecovery client tries
+  when older copies carry later modification times, nor a copy at least as new as its
+  own that a racing run wrote, so two runs with `keep=1` can no longer delete each
+  other's copies and leave none. The KyRecovery client tries
   every allowed address instead of only the first.
 - Offsite: SFTP and SMB `Test` stage and rename like `Put`, so a server that cannot
   publish fails the test. Empty S3 uploads send `Content-Length: 0` instead of a

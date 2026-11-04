@@ -258,13 +258,13 @@ func TestTransferReadsAreBounded(t *testing.T) {
 	src := strings.Repeat("x", 3<<20)
 	r := &sessionReadCloser{ReadCloser: io.NopCloser(strings.NewReader(src)), ctx: context.Background(), cleanup: func() {}, cancel: func() {}, touch: func() {}}
 	n, err := r.Read(make([]byte, 4<<20))
-	if err != nil || n > maxTransferRead {
-		t.Fatalf("download Read returned %d bytes (%v), want at most %d", n, err, maxTransferRead)
+	if err != nil || n != maxTransferRead {
+		t.Fatalf("download Read returned %d bytes (%v), want %d", n, err, maxTransferRead)
 	}
 	up := &contextReader{ctx: context.Background(), r: strings.NewReader(src)}
 	n, err = up.Read(make([]byte, 4<<20))
-	if err != nil || n > maxTransferRead {
-		t.Fatalf("upload source Read returned %d bytes (%v), want at most %d", n, err, maxTransferRead)
+	if err != nil || n != maxTransferRead {
+		t.Fatalf("upload source Read returned %d bytes (%v), want %d", n, err, maxTransferRead)
 	}
 }
 

@@ -1,9 +1,11 @@
 package recoveryclient
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -180,5 +182,29 @@ func TestWriteLocalCopyNeverPrunesTheCopyItWrote(t *testing.T) {
 	}
 	if !strings.Contains(copies[0].Name, "cap-b") {
 		t.Fatalf("the newer existing copy should survive, kept %v", copies)
+	}
+}
+
+// Two runs writing the same app's copies at once, keep=1: each used to keep its own copy
+// and delete the other's, leaving none.
+func TestConcurrentLocalCopiesNeverLeaveNone(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 200; i++ {
+		var wg sync.WaitGroup
+		for _, id := range []string{"a", "b"} {
+			wg.Add(1)
+			go func(id string) {
+				defer wg.Done()
+				_, _ = WriteLocalCopy(dir, "Svc", fmt.Sprintf("cap-%d-%s", i, id), []byte("sealed"), 1)
+			}(id)
+		}
+		wg.Wait()
+		copies, err := ListLocalCopies(dir, "Svc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(copies) == 0 {
+			t.Fatalf("round %d: two racing runs left no copy", i)
+		}
 	}
 }
