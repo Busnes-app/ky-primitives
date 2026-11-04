@@ -13,6 +13,18 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root: `oidcverify` runs the shared JWKS fetch detached from the request that
+  triggered it (capped at 30 seconds), so a client that hangs up can no longer
+  make every verification fail with `ErrUnknownKey` for `MinRefresh`.
+- Root: `syncauth.Verify` holds the `NewMemoryReplay` guard to the wider of its own
+  window and `Options.Window`, on `Options.Now`; a wider verify window no longer
+  lets an event replay once the guard forgets it.
+- Root: `recoveryclient.WriteLocalCopy` never prunes the copy it just wrote, even
+  when older copies carry later modification times.
+- Offsite: SFTP and SMB `Test` stage and rename like `Put`, so a server that cannot
+  publish fails the test. With `Config.Timeout` zero, a transfer now fails after
+  five minutes without progress rather than five minutes in total. Empty S3
+  uploads send `Content-Length: 0` instead of a chunked body.
 - Root: new `suitedir` package, the client for KyIdentity's suite directory
   (`/api/suite/apps`, `/api/suite/peer`). Additive; no migration.
 - Root: `recoveryclient.RepinRecoveryKey` moves a product to a new recovery key after
@@ -31,8 +43,9 @@ Keep unpublished changes separate from tagged releases.
   including zero, instead of conditioning the leading coefficient to be nonzero.
   This restores the intended share distribution without changing `ky2` encoding
   or the ability to combine existing shares. [Source change](https://github.com/Busnes-app/ky-primitives/commit/ad09877).
-- Offsite: S3 requests use the AWS SDK SigV4 signer, including standard object-path
-  escaping, rather than the local signer. The target API is unchanged; operators
+- Offsite: S3 requests use the AWS SDK SigV4 signer rather than the local signer.
+  The SDK's own path escaping is off, so object paths are signed exactly as the local
+  signer signed them, characters such as `+`, `=` and `:` included. The target API is unchanged; operators
   should verify their S3-compatible endpoint during adoption.
   [Source change](https://github.com/Busnes-app/ky-primitives/commit/f39c65a).
 - Root: `totp.Code` and `totp.Validate` refuse decoded secrets below 16 bytes
