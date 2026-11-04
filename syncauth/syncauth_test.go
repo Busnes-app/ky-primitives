@@ -293,3 +293,52 @@ func TestMiddlewareKeepsFlusherBehindAForgetter(t *testing.T) {
 		t.Fatalf("flusher %v, recorder flushed %v, code %d", flushed, w.Flushed, w.Code)
 	}
 }
+
+// plainWriter can neither flush nor unwrap, like an outer middleware's wrapper.
+type plainWriter struct{ w http.ResponseWriter }
+
+func (p plainWriter) Header() http.Header         { return p.w.Header() }
+func (p plainWriter) Write(b []byte) (int, error) { return p.w.Write(b) }
+func (p plainWriter) WriteHeader(code int)        { p.w.WriteHeader(code) }
+
+// A flush that did nothing must not count as a 200: the handler's later 503 still
+// releases the ID.
+func TestMiddlewareFailedFlushDoesNotCountAsSuccess(t *testing.T) {
+	body := []byte("x")
+	calls := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.(http.Flusher).Flush()
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	mw := Middleware(func(*http.Request) ([]byte, error) { return key, nil }, Options{Replay: NewMemoryReplay(0, 0)}, 0, nil)(next)
+	srv := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { mw.ServeHTTP(plainWriter{w}, r) })
+	h, _ := Sign(key, time.Now(), "t", "evt-nf", body)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+		h.Apply(req)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("delivery %d: %d", i+1, w.Code)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("the retry of a failed event did not reach the handler: %d calls", calls)
+	}
+}
+
+func TestMiddlewareReportsAFlushTheWriterCannotDo(t *testing.T) {
+	var flushErr error
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flushErr = http.NewResponseController(w).Flush()
+	})
+	mw := Middleware(func(*http.Request) ([]byte, error) { return key, nil }, Options{Replay: NewMemoryReplay(0, 0)}, 0, nil)(next)
+	h, _ := Sign(key, time.Now(), "t", "evt-fe", []byte("x"))
+	req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader([]byte("x")))
+	h.Apply(req)
+	mw.ServeHTTP(plainWriter{httptest.NewRecorder()}, req)
+	if !errors.Is(flushErr, http.ErrNotSupported) {
+		t.Fatalf("flush through the controller: %v, want http.ErrNotSupported", flushErr)
+	}
+}

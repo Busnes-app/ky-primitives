@@ -58,7 +58,7 @@ anchor exactly, run it twice: once over the whole log with the stored anchor, an
 the first `Count` records with the outside copy, for example
 `grep -v '^[[:space:]]*$' trail.jsonl | head -n 42 | kyauditverify -key @audit.key -anchor 42:<hash>`.
 Given the whole log instead, a log longer than the outside copy fails with "records past
-an anchor" before any hash is compared, so that error says nothing either way: the check
+an anchor" before the anchor's hash is compared, so that error says nothing either way: the check
 over the first `Count` records is the one that decides.
 
 `Resume` requires it too. A valid digest does not make a record the tail — every record in

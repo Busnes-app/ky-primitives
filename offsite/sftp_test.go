@@ -320,4 +320,7 @@ func TestSFTPDefaultBudgetAllowsSlowPutsAndStopsStalledWrites(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
 		t.Fatalf("stalled Put: err %v after %s, want context.DeadlineExceeded", err, time.Since(start))
 	}
+	if err := target.Test(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stalled Test: err %v, want context.DeadlineExceeded", err)
+	}
 }

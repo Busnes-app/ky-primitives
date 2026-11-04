@@ -228,9 +228,9 @@ func (t *sftpTarget) Test(ctx context.Context) error {
 	}
 	defer cleanup()
 	if err := t.put(ctx, client, pingName, &contextReader{ctx: ctx, r: strings.NewReader("ping")}); err != nil {
-		return err
+		return expired(ctx, err)
 	}
-	return client.Remove(path.Join(t.dir, pingName))
+	return expired(ctx, client.Remove(path.Join(t.dir, pingName)))
 }
 
 type sessionReadCloser struct {

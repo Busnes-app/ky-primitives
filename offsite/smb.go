@@ -221,10 +221,10 @@ func (t *smbTarget) Test(ctx context.Context) error {
 	// SMB put never replaces, so clear a probe an interrupted Test left behind.
 	probe := path.Join(t.dir, pingName)
 	if err := share.Remove(probe); err != nil && !os.IsNotExist(err) {
-		return err
+		return expired(ctx, err)
 	}
 	if err := t.put(share, pingName, &contextReader{ctx: ctx, r: strings.NewReader("ping")}); err != nil {
-		return err
+		return expired(ctx, err)
 	}
-	return share.Remove(probe)
+	return expired(ctx, share.Remove(probe))
 }

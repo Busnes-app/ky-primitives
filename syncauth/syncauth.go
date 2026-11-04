@@ -379,12 +379,18 @@ func (s *statusWriter) Write(b []byte) (int, error) {
 	return s.ResponseWriter.Write(b)
 }
 
-// Flush keeps http.Flusher working for handlers behind the wrapper.
-func (s *statusWriter) Flush() {
-	if s.status == 0 {
+// Flush keeps http.Flusher working for handlers behind the wrapper. Only a flush that
+// happened sends the implicit 200, so only that one is recorded.
+func (s *statusWriter) Flush() { _ = s.FlushError() }
+
+// FlushError is what http.ResponseController calls, so its caller still sees a flush the
+// writer underneath cannot do.
+func (s *statusWriter) FlushError() error {
+	err := http.NewResponseController(s.ResponseWriter).Flush()
+	if err == nil && s.status == 0 {
 		s.status = http.StatusOK
 	}
-	_ = http.NewResponseController(s.ResponseWriter).Flush()
+	return err
 }
 
 // Unwrap lets http.ResponseController reach Flush and deadlines on the real writer.

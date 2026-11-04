@@ -126,21 +126,24 @@ func WriteLocalCopy(dir, appName, capsuleID string, raw []byte, keep int) (strin
 	}
 	// The copy just written always survives: ordering is by mtime, and a clock that ran
 	// ahead before (or a copied-in file) would otherwise sort it last and prune it.
-	// A copy at least as new as ours and not dated in the future was written by a run
-	// racing this one; pruning it too would let two runs with keep=1 delete each other's.
+	// A copy at least as new as ours (and not far ahead of it) was written by a run racing
+	// this one; pruning it too would let two runs with keep=1 delete each other's. If ours
+	// is already gone, such a run pruned it, and pruning here could leave nothing.
 	var mine time.Time
 	for _, c := range copies {
 		if c.Name == filepath.Base(final) {
 			mine = c.CreatedAt
 		}
 	}
-	now := time.Now()
+	if mine.IsZero() {
+		return final, fmt.Errorf("prune: %s was removed by a concurrent run", filepath.Base(final))
+	}
 	kept := 1
 	for _, c := range copies {
 		if c.Name == filepath.Base(final) {
 			continue
 		}
-		if !mine.IsZero() && !c.CreatedAt.Before(mine) && !c.CreatedAt.After(now) {
+		if !c.CreatedAt.Before(mine) && !c.CreatedAt.After(mine.Add(time.Minute)) {
 			kept++
 			continue
 		}
