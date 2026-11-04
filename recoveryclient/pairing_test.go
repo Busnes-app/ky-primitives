@@ -108,10 +108,10 @@ func TestClearPairingHalfClearedStillClears(t *testing.T) {
 	}
 }
 
-// flakySettings fails Get or Set of one key, the way a busy database does now and then.
+// flakySettings fails Get of one key, the way a busy database does now and then.
 type flakySettings struct {
 	memSettings
-	failGet, failSet string
+	failGet string
 }
 
 var errFlaky = errors.New("database is locked")
@@ -121,13 +121,6 @@ func (f flakySettings) Get(k string) (string, error) {
 		return "", errFlaky
 	}
 	return f.memSettings.Get(k)
-}
-
-func (f flakySettings) Set(k, v string) error {
-	if k == f.failSet {
-		return errFlaky
-	}
-	return f.memSettings.Set(k, v)
 }
 
 // A settings read that fails is not "unpaired": Run must not skip KyRecovery and report success.

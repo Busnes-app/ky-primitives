@@ -26,7 +26,7 @@ var splitPartBytes = int(MaxCapsuleFileBytes)
 // whole file of the same name.
 var ErrSplitParts = errors.New("recoveryclient: split file parts do not add up")
 
-var partPattern = regexp.MustCompile(`^(.+)\.([0-9]{3})-of-([0-9]{3})$`)
+var partPattern = regexp.MustCompile(`(?s)^(.+)\.([0-9]{3})-of-([0-9]{3})$`)
 
 func partName(p string, i, n int) string { return fmt.Sprintf("%s.%03d-of-%03d", p, i, n) }
 
@@ -69,6 +69,9 @@ func joinSplitFiles(dir string) error {
 	}
 	for whole, found := range sets {
 		n, _ := strconv.Atoi(partPattern.FindStringSubmatch(found[0])[3])
+		if n < 2 && len(found) == 1 {
+			continue // SplitFile never makes one part: an ordinary file that happens to look like one
+		}
 		if len(found) != n {
 			return fmt.Errorf("%w: %d parts of %s present, the first says %d", ErrSplitParts, len(found), whole, n)
 		}
@@ -92,7 +95,7 @@ func joinParts(root *os.Root, whole string, parts []string) error {
 	if err != nil {
 		return err
 	}
-	tmp := path.Join(path.Dir(whole), "."+path.Base(whole)+".joining-"+rand.Text())
+	tmp := path.Join(path.Dir(whole), ".join-"+rand.Text())
 	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
 	if err != nil {
 		return err
@@ -115,8 +118,10 @@ func joinParts(root *os.Root, whole string, parts []string) error {
 		_ = root.Remove(tmp)
 		return err
 	}
-	for _, p := range parts {
-		if err := root.Remove(p); err != nil {
+	// Last part first, so an interrupted cleanup leaves the whole file and a leading run of
+	// parts, the state kydrive-server's own JoinDatabase knows how to finish.
+	for i := len(parts) - 1; i >= 0; i-- {
+		if err := root.Remove(parts[i]); err != nil {
 			return err
 		}
 	}

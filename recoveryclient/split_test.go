@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Busnes-app/ky-primitives/capsule"
@@ -100,7 +101,7 @@ func TestJoinWithoutPartsChangesNothing(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app.db", "app.db.bak", "app.db.000", "notes.sqlite.001"} {
+	for _, name := range []string{"app.db", "app.db.bak", "app.db.000", "notes.sqlite.001", "archive.000-of-001"} {
 		if err := os.WriteFile(filepath.Join(dir, "data", name), []byte(name), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -109,7 +110,7 @@ func TestJoinWithoutPartsChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(filepath.Join(dir, "data"))
-	if got, _ := os.ReadFile(filepath.Join(dir, "data", "app.db")); string(got) != "app.db" || len(entries) != 4 {
+	if got, _ := os.ReadFile(filepath.Join(dir, "data", "app.db")); string(got) != "app.db" || len(entries) != 5 {
 		t.Fatalf("directory changed: %q %v", got, entries)
 	}
 }
@@ -136,6 +137,31 @@ func TestJoinRefusesPartsThatDoNotAddUp(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(dir, "app.db")); !os.IsNotExist(err) {
 				t.Errorf("%s: a partial database was written", name)
 			}
+		}
+	}
+}
+
+// Any valid path splits and joins, including one with a newline or a name near the
+// filesystem's component limit.
+func TestJoinHandlesUnusualNames(t *testing.T) {
+	lowerSplit(t, 4)
+	for _, name := range []string{"data/a\nb.db", "data/" + strings.Repeat("n", 230)} {
+		dir := t.TempDir()
+		want := []byte("0123456789")
+		for _, f := range SplitFile(File{Path: name, Data: want, Mode: 0600}) {
+			p := filepath.Join(dir, filepath.FromSlash(f.Path))
+			if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, f.Data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := joinSplitFiles(dir); err != nil {
+			t.Fatalf("%q: %v", name, err)
+		}
+		if got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))); err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("%q: %q %v", name, got, err)
 		}
 	}
 }

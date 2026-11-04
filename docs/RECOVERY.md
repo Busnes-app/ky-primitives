@@ -180,7 +180,8 @@ What it pins, each by a named test:
   directory. A capsule without parts restores as before, and missing, renumbered or extra
   parts are `ErrSplitParts` (`TestSplitDatabaseRestoresAndJoins`, `TestSplitDatabaseDrills`,
   `TestJoinRefusesPartsThatDoNotAddUp`). The whole capsule stays within
-  `MaxCapsuleTotalBytes`; the product warns before it gets there.
+  `MaxCapsuleTotalBytes`, and warning the operator before a database gets near it is the
+  product's job.
 - `Deposit` ends after five minutes in which no bytes of the container were read (waiting
   for KyRecovery's answer after the last byte included), or after 24 hours, with an error
   matching `context.DeadlineExceeded`; a large capsule on a slow uplink completes while it

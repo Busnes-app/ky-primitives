@@ -17,8 +17,13 @@ Keep unpublished changes separate from tagged releases.
   (64 MiB), such as a large SQLite snapshot, into ordered parts `<path>.000-of-NNN` for the
   payload, and `Restore` and `Drill` reassemble them before the product or its checks see
   the directory (new `ErrSplitParts` for parts that do not add up). A capsule without parts
-  restores as before. The names match kydrive-server's own parts, whose `JoinDatabase`
-  then finds nothing left to do; KyNotes-server's `.000` names are not touched.
+  restores as before; a single `<path>.000-of-001` is left alone. The names match
+  kydrive-server's own parts, whose `JoinDatabase` then finds nothing left to do; parts
+  are removed last first, so an interrupted cleanup is still one it can finish.
+  Upgrade impact for kydrive-server: a capsule with missing or renumbered parts now fails
+  inside `Restore` with `recoveryclient.ErrSplitParts` instead of later with its own
+  `ErrDatabaseParts`; nothing is joined either way, but its test for that case needs the
+  new error. KyNotes-server's `.000` names are not touched.
 - Root: `recoveryclient.Client.Deposit` ends after five minutes in which no bytes of the
   container were read (waiting for KyRecovery's answer included) or 24 hours, instead of
   15 minutes for the whole upload, so a large capsule on a slow uplink completes; expiry
