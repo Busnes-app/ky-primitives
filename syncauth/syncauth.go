@@ -143,7 +143,9 @@ type Options struct {
 	// Now is the receiver's clock; nil means time.Now.
 	Now func() time.Time
 	// Replay, when set, is asked whether the event ID was already accepted inside the
-	// window; a receiver with a table supplies its own, others use NewMemoryReplay.
+	// window; a receiver with a table supplies its own, others use NewMemoryReplay. A guard
+	// must remember an ID for at least Window, or the event replays once it is forgotten;
+	// the NewMemoryReplay guard is held to Window and Now automatically.
 	Replay Replay
 }
 
@@ -187,7 +189,13 @@ func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 		return Event{}, ErrBadSignature
 	}
 	if o.Replay != nil {
-		if err := o.Replay.Check(h.EventID, at); err != nil {
+		var err error
+		if m, ok := o.Replay.(*memoryReplay); ok {
+			err = m.check(h.EventID, at, now(), window)
+		} else {
+			err = o.Replay.Check(h.EventID, at)
+		}
+		if err != nil {
 			return Event{}, err
 		}
 	}
@@ -221,9 +229,15 @@ func NewMemoryReplay(window time.Duration, max int) Replay {
 }
 
 func (m *memoryReplay) Check(id string, at time.Time) error {
+	return m.check(id, at, time.Now(), m.window)
+}
+
+// check forgets IDs older than the wider of the guard's window and the caller's, on the
+// caller's clock, so Verify never accepts a timestamp the guard has already forgotten.
+func (m *memoryReplay) check(id string, at, now time.Time, window time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cutoff := time.Now().Add(-m.window)
+	cutoff := now.Add(-max(window, m.window))
 	for len(m.order) > 0 {
 		oldest := m.order[0]
 		if t, ok := m.seen[oldest]; ok && t.After(cutoff) {

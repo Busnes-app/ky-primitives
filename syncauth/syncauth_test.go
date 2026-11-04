@@ -201,3 +201,22 @@ func FuzzVerify(f *testing.F) {
 		}
 	})
 }
+
+// A receiver that widens Window for drifting clocks must not get a guard that forgets IDs
+// Verify still accepts: the default guard used to keep them for five minutes regardless.
+func TestMemoryGuardCoversAWiderVerifyWindow(t *testing.T) {
+	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	at := now.Add(-8 * time.Minute)
+	body := []byte(`{"user":"u1"}`)
+	h, err := Sign(key, at, "user.reactivated", "evt-8m", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Window: 15 * time.Minute, Now: func() time.Time { return now }, Replay: NewMemoryReplay(0, 0)}
+	if _, err := Verify(key, h, body, o); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	if _, err := Verify(key, h, body, o); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay inside the verify window: got %v, want ErrReplay", err)
+	}
+}
