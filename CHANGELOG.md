@@ -22,6 +22,18 @@ Keep unpublished changes separate from tagged releases.
   or 24 hours, instead of 15 minutes for the whole upload, so a large capsule on a slow
   uplink completes; expiry matches `context.DeadlineExceeded`. KyRecovery-server needs its
   matching per-chunk deadline for this to help past 15 minutes.
+- Root: `capsule.Open` refuses a GNU sparse tar member. The tar reader fills a sparse
+  file's holes after the expansion budget has counted the stream, so a few KiB could
+  expand to 64 MiB per member at restore. `Seal` never writes one.
+- Root: `recoveryclient.Run` returns a failed read of the pairing rows instead of
+  treating it as "unpaired" and reporting a local-only run as success.
+  `StorePairing` removes the old URL first, so a re-pair that fails part-way leaves no
+  pairing rather than the new URL with the previous token. The dialer also refuses the
+  NAT64 local-use prefix `64:ff9b:1::/48`.
+- Root: `scim.Client.FindUser` answers `ErrNotFound` only for a list reporting no
+  matches; a body that is not a list, or reports matches it does not carry, is
+  `ErrMalformedResponse`. An empty value is refused before any request. A refused
+  redirect no longer puts the filter in the error text.
 - Root: `scim.Client.CreateUser` and `ReplaceUser` always send `roles`, as `[]` when the
   user has none, so a replace revokes a last role at a server that keeps omitted
   attributes. `scim.User` documents that an absent `active` decodes as false.
