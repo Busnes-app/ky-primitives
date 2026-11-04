@@ -40,7 +40,8 @@ var ErrNoScratchRoot = errors.New("recoveryclient: drill needs a scratch root in
 
 // Drill proves the payload restores: it seals to a throwaway key generated and discarded
 // inside this call, opens the capsule into a 0700 scratch directory under scratchRoot wiped
-// on return, and appends the product's checks. Checks receive the opened manifest; its
+// on return, reassembles any file sealed as parts by SplitFile, as Restore does, and appends
+// the product's checks. Checks receive the opened manifest; its
 // recipe and dependency values are authenticated but caller-authored, so product code must
 // type-check them and reject paths that are not clean relative paths inside dir before
 // acting on them. Stale scratch directories left under scratchRoot by a killed drill are
@@ -108,6 +109,10 @@ func Drill(ctx context.Context, scratchRoot string, payload Payload, checks func
 		return finish()
 	}
 	pass("Directory Unpack", fmt.Sprintf("%d files extracted into a 0700 sandbox", len(files)))
+	if err := joinSplitFiles(dir); err != nil {
+		fail("Reassemble", AuditSafe(err.Error()))
+		return finish()
+	}
 	if checks != nil {
 		result.Checks = append(result.Checks, checks(dir, opened)...)
 	}

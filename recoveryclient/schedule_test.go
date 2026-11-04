@@ -66,3 +66,13 @@ func TestIntervalRefusesAStoredValueOutsideTheBound(t *testing.T) {
 		t.Errorf("stored off: %v %v", d, err)
 	}
 }
+
+// A clock that once ran a year ahead left a future stamp; once corrected, the next run is now,
+// not a year away.
+func TestNextRunTreatsAFutureStampAsDue(t *testing.T) {
+	s := memSettings{settingLastAttempt: time.Now().UTC().AddDate(1, 0, 0).Format(time.RFC3339)}
+	next, ok, err := NextRun(time.Hour, s)
+	if err != nil || !ok || time.Until(next) > time.Minute {
+		t.Fatalf("next %v ok %v err %v", next, ok, err)
+	}
+}

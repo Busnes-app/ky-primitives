@@ -69,9 +69,6 @@ func TestSplitDatabaseRestoresAndJoins(t *testing.T) {
 	if err := Restore(capsulePath, target, "Svc", []string{shares[0].String(), shares[2].String()}, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinSplitFiles(target, "data/app.db"); err != nil {
-		t.Fatal(err)
-	}
 	got, err := os.ReadFile(filepath.Join(target, "data", "app.db"))
 	if err != nil || !bytes.Equal(got, db) {
 		t.Fatalf("joined database %q, %v", got, err)
@@ -83,55 +80,48 @@ func TestSplitDatabaseRestoresAndJoins(t *testing.T) {
 	if len(entries) != 2 {
 		t.Errorf("parts or scratch left behind: %v", entries)
 	}
-	// Joining again finds no parts and leaves the database alone.
-	if err := JoinSplitFiles(target, "data/app.db"); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestSplitDatabaseDrills(t *testing.T) {
 	lowerSplit(t, 8)
 	p, db := bigPayload()
 	res, err := Drill(context.Background(), t.TempDir(), p, func(dir string, _ capsule.Manifest) []Check {
-		if err := JoinSplitFiles(dir, "data/app.db"); err != nil {
-			return []Check{{Name: "join", Message: err.Error()}}
-		}
 		got, err := os.ReadFile(filepath.Join(dir, "data", "app.db"))
-		return []Check{{Name: "db", Passed: err == nil && bytes.Equal(got, db)}}
+		_, part := os.Stat(filepath.Join(dir, "data", "app.db.000-of-003"))
+		return []Check{{Name: "db", Passed: err == nil && bytes.Equal(got, db) && os.IsNotExist(part)}}
 	})
 	if err != nil || !res.Passed {
 		t.Fatalf("%v %+v", err, res)
 	}
 }
 
-func TestJoinSplitFilesWithoutPartsChangesNothing(t *testing.T) {
+func TestJoinWithoutPartsChangesNothing(t *testing.T) {
 	dir := t.TempDir()
-	if err := JoinSplitFiles(dir, "data/app.db"); err != nil {
-		t.Fatalf("missing directory: %v", err)
-	}
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"app.db", "app.db.bak", "app.db.000"} {
+	for _, name := range []string{"app.db", "app.db.bak", "app.db.000", "notes.sqlite.001"} {
 		if err := os.WriteFile(filepath.Join(dir, "data", name), []byte(name), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := JoinSplitFiles(dir, "data/app.db"); err != nil {
+	if err := joinSplitFiles(dir); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "data", "app.db")); string(got) != "app.db" {
-		t.Fatalf("whole file changed: %q", got)
+	entries, _ := os.ReadDir(filepath.Join(dir, "data"))
+	if got, _ := os.ReadFile(filepath.Join(dir, "data", "app.db")); string(got) != "app.db" || len(entries) != 4 {
+		t.Fatalf("directory changed: %q %v", got, entries)
 	}
 }
 
-func TestJoinSplitFilesRefusesPartsThatDoNotAddUp(t *testing.T) {
+func TestJoinRefusesPartsThatDoNotAddUp(t *testing.T) {
 	for name, files := range map[string][]string{
 		"missing part":      {"app.db.000-of-003", "app.db.002-of-003"},
 		"missing last part": {"app.db.000-of-003", "app.db.001-of-003"},
 		"mixed counts":      {"app.db.000-of-002", "app.db.001-of-003"},
 		"beside whole":      {"app.db", "app.db.000-of-002", "app.db.001-of-002"},
 		"renumbered":        {"app.db.001-of-002", "app.db.002-of-002"},
+		"extra part":        {"app.db.000-of-002", "app.db.001-of-002", "app.db.002-of-002"},
 	} {
 		dir := t.TempDir()
 		for _, f := range files {
@@ -139,7 +129,7 @@ func TestJoinSplitFilesRefusesPartsThatDoNotAddUp(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := JoinSplitFiles(dir, "app.db"); !errors.Is(err, ErrSplitParts) {
+		if err := joinSplitFiles(dir); !errors.Is(err, ErrSplitParts) {
 			t.Errorf("%s: want ErrSplitParts, got %v", name, err)
 		}
 		if name != "beside whole" {

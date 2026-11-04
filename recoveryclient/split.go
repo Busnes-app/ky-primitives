@@ -1,21 +1,23 @@
 package recoveryclient
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
-	"strings"
 )
 
 // A file larger than one capsule member (MaxCapsuleFileBytes), in practice a SQLite snapshot
-// of a large database, is sealed as ordered parts named <path>.000-of-003, <path>.001-of-003,
-// and so on. SplitFile makes the parts when collecting; JoinSplitFiles puts the file back
-// together after Restore, and inside a Drill's checks, before anything opens it. A capsule
-// without parts is left as it was by both, so older capsules restore unchanged. The whole
-// capsule is still bounded by MaxCapsuleTotalBytes.
+// of a large database, goes into the payload through SplitFile as ordered parts named
+// <path>.000-of-003, <path>.001-of-003, and so on (the names kydrive-server already uses).
+// Restore and Drill put every such file back together before anyone opens it, so the restored
+// directory and a drill's checks see <path> itself. A capsule without parts is left as it was.
+// The whole capsule is still bounded by MaxCapsuleTotalBytes.
 
 // splitPartBytes is the largest part; a test lowers it.
 var splitPartBytes = int(MaxCapsuleFileBytes)
@@ -23,6 +25,8 @@ var splitPartBytes = int(MaxCapsuleFileBytes)
 // ErrSplitParts means the parts of a split file are incomplete, out of order, or sit beside a
 // whole file of the same name.
 var ErrSplitParts = errors.New("recoveryclient: split file parts do not add up")
+
+var partPattern = regexp.MustCompile(`^(.+)\.([0-9]{3})-of-([0-9]{3})$`)
 
 func partName(p string, i, n int) string { return fmt.Sprintf("%s.%03d-of-%03d", p, i, n) }
 
@@ -40,75 +44,64 @@ func SplitFile(f File) []File {
 	return parts
 }
 
-// JoinSplitFiles reassembles the file sealed as parts of name (a slash-separated path relative
-// to dir, as given to SplitFile) into dir/name, with the first part's mode, and removes the
-// parts. Without parts it does nothing. It refuses a missing, extra or renumbered part, and
-// parts beside a whole file, with ErrSplitParts.
-func JoinSplitFiles(dir, name string) error {
+// joinSplitFiles reassembles every split file under dir, a directory capsule.Open just
+// filled, into its own name with the first part's mode, and removes the parts. It refuses a
+// missing, extra or renumbered part, and parts beside a whole file, with ErrSplitParts. It is
+// not resumable; neither is the restore it finishes, which needs an empty target.
+func joinSplitFiles(dir string) error {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
-	parent, base := path.Split(name)
-	parent = strings.TrimSuffix(parent, "/")
-	if parent == "" {
-		parent = "."
-	}
-	d, err := root.Open(parent)
-	if errors.Is(err, os.ErrNotExist) {
+	sets := map[string][]string{} // whole file -> part names found, in walk (lexical) order
+	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if m := partPattern.FindStringSubmatch(p); m != nil {
+			sets[m[1]] = append(sets[m[1]], p)
+		}
 		return nil
-	}
+	})
 	if err != nil {
 		return err
 	}
-	names, err := d.Readdirnames(-1)
-	d.Close()
-	if err != nil {
-		return err
-	}
-	n, found := 0, 0
-	for _, entry := range names {
-		rest, ok := strings.CutPrefix(entry, base+".")
-		if !ok || len(rest) != 10 || rest[3:7] != "-of-" {
-			continue
+	for whole, found := range sets {
+		n, _ := strconv.Atoi(partPattern.FindStringSubmatch(found[0])[3])
+		if len(found) != n {
+			return fmt.Errorf("%w: %d parts of %s present, the first says %d", ErrSplitParts, len(found), whole, n)
 		}
-		total, err := strconv.Atoi(rest[7:])
-		if _, err2 := strconv.Atoi(rest[:3]); err != nil || err2 != nil {
-			continue
+		for i, p := range found {
+			if p != partName(whole, i, n) {
+				return fmt.Errorf("%w: found %s where %s belongs", ErrSplitParts, p, partName(whole, i, n))
+			}
 		}
-		if n != 0 && total != n {
-			return fmt.Errorf("%w: %s does not belong with parts of %d", ErrSplitParts, entry, n)
+		if _, err := root.Lstat(whole); !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: %s and its parts are both present", ErrSplitParts, whole)
 		}
-		n = total
-		found++
-	}
-	if found == 0 {
-		return nil
-	}
-	if _, err := root.Lstat(name); !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: %s and its parts are both present", ErrSplitParts, name)
-	}
-	if found != n {
-		return fmt.Errorf("%w: %d of %d parts of %s present", ErrSplitParts, found, n, name)
-	}
-	parts := make([]string, n)
-	for i := range parts {
-		parts[i] = partName(name, i, n)
-		if _, err := root.Lstat(parts[i]); err != nil {
-			return fmt.Errorf("%w: %s: %w", ErrSplitParts, parts[i], err)
+		if err := joinParts(root, whole, found); err != nil {
+			return fmt.Errorf("reassembling %s: %w", whole, err)
 		}
 	}
+	return nil
+}
+
+func joinParts(root *os.Root, whole string, parts []string) error {
 	info, err := root.Lstat(parts[0])
 	if err != nil {
 		return err
 	}
-	tmp := name + ".joining"
+	tmp := path.Join(path.Dir(whole), "."+path.Base(whole)+".joining-"+rand.Text())
 	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
-	err = appendParts(root, out, parts)
+	for _, p := range parts {
+		if err == nil {
+			err = appendFile(root, out, p)
+		}
+	}
 	if err == nil {
 		err = out.Sync()
 	}
@@ -116,7 +109,7 @@ func JoinSplitFiles(dir, name string) error {
 		err = e
 	}
 	if err == nil {
-		err = root.Rename(tmp, name)
+		err = root.Rename(tmp, whole)
 	}
 	if err != nil {
 		_ = root.Remove(tmp)
@@ -130,17 +123,12 @@ func JoinSplitFiles(dir, name string) error {
 	return nil
 }
 
-func appendParts(root *os.Root, out io.Writer, parts []string) error {
-	for _, p := range parts {
-		in, err := root.Open(p)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(out, in)
-		in.Close()
-		if err != nil {
-			return err
-		}
+func appendFile(root *os.Root, out io.Writer, name string) error {
+	in, err := root.Open(name)
+	if err != nil {
+		return err
 	}
-	return nil
+	defer in.Close()
+	_, err = io.Copy(out, in)
+	return err
 }

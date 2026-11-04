@@ -28,10 +28,10 @@ const (
 // ID and Meta; the client never sends them. CreateUser and ReplaceUser always send roles,
 // as [] when Roles is empty, so a replace revokes a last role.
 //
-// Active is a plain bool, so decoding a body without "active" gives false, although RFC 7643
-// makes an absent active mean the account is usable. A server decoding inbound users with this
-// type must check for the key itself (decode into a map or json.RawMessage first) or it creates
-// disabled accounts, and a client that fetches a user and replaces it must set Active
+// Active is a plain bool, so a body without "active" decodes as false, the same as an explicit
+// false. A server decoding inbound users with this type must check for the key itself (decode
+// into a map or json.RawMessage first) and apply its own default, or an omitted attribute
+// creates a disabled account; a client that fetches a user and replaces it must set Active
 // explicitly or it deactivates the account.
 type User struct {
 	Schemas     []string     `json:"schemas"`

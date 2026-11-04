@@ -13,27 +13,30 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
-- Root (minor): `recoveryclient.SplitFile` seals a file larger than one capsule member
-  (64 MiB), such as a large SQLite snapshot, as ordered parts `<path>.000-of-NNN`, and
-  `recoveryclient.JoinSplitFiles` reassembles them after `Restore` or in a drill's checks
-  (new `ErrSplitParts`). Opt-in: `Restore` and `Drill` are unchanged, and a capsule
-  without parts restores as before. The names match kydrive-server's own parts.
-- Root: `recoveryclient.Client.Deposit` ends an upload after five minutes without progress
-  or 24 hours, instead of 15 minutes for the whole upload, so a large capsule on a slow
-  uplink completes; expiry matches `context.DeadlineExceeded`. KyRecovery-server needs its
-  matching per-chunk deadline for this to help past 15 minutes.
+- Root (minor): `recoveryclient.SplitFile` splits a file larger than one capsule member
+  (64 MiB), such as a large SQLite snapshot, into ordered parts `<path>.000-of-NNN` for the
+  payload, and `Restore` and `Drill` reassemble them before the product or its checks see
+  the directory (new `ErrSplitParts` for parts that do not add up). A capsule without parts
+  restores as before. The names match kydrive-server's own parts, whose `JoinDatabase`
+  then finds nothing left to do; KyNotes-server's `.000` names are not touched.
+- Root: `recoveryclient.Client.Deposit` ends after five minutes in which no bytes of the
+  container were read (waiting for KyRecovery's answer included) or 24 hours, instead of
+  15 minutes for the whole upload, so a large capsule on a slow uplink completes; expiry
+  matches `context.DeadlineExceeded`. KyRecovery-server needs its matching per-chunk
+  deadline for this to help past 15 minutes.
+- Root: `recoveryclient.NextRun` treats a last-attempt stamp in the future (a clock that
+  ran ahead and was corrected) as due now, instead of stopping backups until that date.
 - Root: `capsule.Open` refuses a GNU sparse tar member. The tar reader fills a sparse
   file's holes after the expansion budget has counted the stream, so a few KiB could
   expand to 64 MiB per member at restore. `Seal` never writes one.
-- Root: `recoveryclient.Run` returns a failed read of the pairing rows instead of
-  treating it as "unpaired" and reporting a local-only run as success.
-  `StorePairing` removes the old URL first, so a re-pair that fails part-way leaves no
-  pairing rather than the new URL with the previous token. The dialer also refuses the
-  NAT64 local-use prefix `64:ff9b:1::/48`.
-- Root: `scim.Client.FindUser` answers `ErrNotFound` only for a list reporting no
-  matches; a body that is not a list, or reports matches it does not carry, is
-  `ErrMalformedResponse`. An empty value is refused before any request. A refused
-  redirect no longer puts the filter in the error text.
+- Root: `recoveryclient.Run` returns a failed read of the pairing rows, after still
+  writing the local copy, instead of treating it as "unpaired" and reporting a
+  local-only run as success. The dialer also refuses the NAT64 local-use prefix
+  `64:ff9b:1::/48`.
+- Root: `scim.Client.FindUser` answers `ErrNotFound` only for a list whose
+  `totalResults` is 0. A body without users and without that count, or one reporting
+  fewer matches than it carries, is `ErrMalformedResponse`. An empty value is refused
+  before any request. A refused redirect no longer puts the filter in the error text.
 - Root: `scim.Client.CreateUser` and `ReplaceUser` always send `roles`, as `[]` when the
   user has none, so a replace revokes a last role at a server that keeps omitted
   attributes. `scim.User` documents that an absent `active` decodes as false.

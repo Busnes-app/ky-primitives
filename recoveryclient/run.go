@@ -1,6 +1,7 @@
 package recoveryclient
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,12 +75,14 @@ func Run(ctx context.Context, cfg RunConfig, settings Settings, collect func() (
 		return Result{}, err
 	}
 	// A failed read is not "unpaired": skipping KyRecovery would report the run as a success.
-	paired, err := pairingStored(settings)
-	if err != nil {
-		return Result{}, err
+	// The local copy does not depend on those rows, so it is still written, and the read
+	// error is returned with it.
+	paired, pairErr := pairingStored(settings)
+	if pairErr != nil {
+		pairErr = fmt.Errorf("KyRecovery pairing: %w", pairErr)
 	}
 	if !paired && cfg.BackupDir == "" {
-		return Result{}, ErrNoDestination
+		return Result{}, cmp.Or(pairErr, ErrNoDestination)
 	}
 	if cfg.BackupDir != "" && cfg.Keep < 1 {
 		return Result{}, ErrBadKeep
@@ -104,7 +107,7 @@ func Run(ctx context.Context, cfg RunConfig, settings Settings, collect func() (
 		}
 	}
 	if !paired {
-		return res, localErr
+		return res, errors.Join(localErr, pairErr)
 	}
 	pairing, err := LoadPairing(cfg.DataDir, settings, cfg.Sealer)
 	if err != nil {

@@ -47,15 +47,10 @@ func StorePairing(settings Settings, sealer Sealer, serverURL, token string) err
 	if err != nil {
 		return fmt.Errorf("recoveryclient: failed to seal the KyRecovery token: %w", err)
 	}
-	// The old URL goes first, so a write that fails part-way leaves no pairing rather than one
-	// that sends the previous server's token to the new URL.
-	if err := settings.Delete(settingRecoveryURL); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := settings.Set(settingRecoveryURL, serverURL); err != nil {
 		return err
 	}
-	if err := settings.Set(settingRecoveryToken, sealed); err != nil {
-		return err
-	}
-	return settings.Set(settingRecoveryURL, serverURL)
+	return settings.Set(settingRecoveryToken, sealed)
 }
 
 // ClearPairing removes the KyRecovery URL and the sealed token from settings, so

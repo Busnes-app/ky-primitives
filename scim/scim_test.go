@@ -601,13 +601,13 @@ func TestFindUserNotFoundOnlyFromAnHonestEmptyList(t *testing.T) {
 	defer srv.Close()
 	c := &Client{BaseURL: srv.URL, Token: token, HTTPClient: srv.Client()}
 	ctx := context.Background()
-	for _, b := range []string{`{"totalResults":0,"Resources":[]}`, `{"totalResults":0}`, `{"Resources":[]}`} {
+	for _, b := range []string{`{"totalResults":0,"Resources":[]}`, `{"totalResults":0}`} {
 		body = b
 		if _, err := c.FindUser(ctx, "userName", "nobody"); !errors.Is(err, ErrNotFound) {
 			t.Errorf("%s: want ErrNotFound, got %v", b, err)
 		}
 	}
-	for _, b := range []string{`{"totalResults":1,"Resources":[]}`, `{}`, `{"error":"filtering unsupported"}`, ``} {
+	for _, b := range []string{`{"totalResults":1,"Resources":[]}`, `{"totalResults":2,"Resources":[]}`, `{"Resources":[]}`, `{"totalResults":0,"Resources":[{"id":"1","userName":"nobody"}]}`, `{}`, `{"error":"filtering unsupported"}`, ``} {
 		body = b
 		if _, err := c.FindUser(ctx, "userName", "nobody"); !errors.Is(err, ErrMalformedResponse) {
 			t.Errorf("%q: want ErrMalformedResponse, got %v", b, err)
@@ -635,12 +635,12 @@ func TestFindUserRefusesAnEmptyValue(t *testing.T) {
 // The redirect target carries FindUser's filter, which names a user; the error must not.
 func TestRedirectErrorOmitsTheQuery(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, r.URL.Path+"/?"+r.URL.RawQuery, http.StatusMovedPermanently)
+		http.Redirect(w, r, r.URL.Path+"%0AFORGED/?"+r.URL.RawQuery, http.StatusMovedPermanently)
 	}))
 	defer srv.Close()
 	c := &Client{BaseURL: srv.URL, Token: token, HTTPClient: srv.Client()}
 	_, err := c.FindUser(context.Background(), "userName", "alice@example.com")
-	if err == nil || !strings.Contains(err.Error(), "redirect") || strings.Contains(err.Error(), "alice") {
-		t.Fatalf("want a redirect refusal without the filter, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "redirect") || strings.Contains(err.Error(), "alice") || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("want a one-line redirect refusal without the filter, got %q", err)
 	}
 }

@@ -178,4 +178,23 @@ func TestDepositBudgetRenewsOnProgressAndEndsAStall(t *testing.T) {
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("stall took %v to end", d)
 	}
+
+	// KyRecovery takes the whole container, answers, then stalls in the body.
+	for _, status := range []int{http.StatusCreated, http.StatusServiceUnavailable} {
+		quiet := NewClientWithTransportForTest(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			_, _ = io.ReadAll(r.Body)
+			return &http.Response{StatusCode: status, Body: io.NopCloser(stalledBody{r.Context()})}, nil
+		}), Options{})
+		if _, err := quiet.Deposit(context.Background(), "https://recovery.example.test", "tok", container); !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ErrRemote) {
+			t.Fatalf("status %d, stalled body: want DeadlineExceeded, got %v", status, err)
+		}
+	}
+}
+
+// stalledBody blocks until ctx ends, as a response body from a peer that went quiet does.
+type stalledBody struct{ ctx context.Context }
+
+func (b stalledBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
 }

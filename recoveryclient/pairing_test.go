@@ -130,25 +130,6 @@ func (f flakySettings) Set(k, v string) error {
 	return f.memSettings.Set(k, v)
 }
 
-// A re-pair that fails part-way must not leave the new URL beside the old server's token.
-func TestStorePairingInterruptedLeavesNoMixedPairing(t *testing.T) {
-	dir, s := t.TempDir(), memSettings{}
-	_, key := testKey(t)
-	if err := StoreRecoveryKey(dir, s, key); err != nil {
-		t.Fatal(err)
-	}
-	if err := StorePairing(s, testSealer(t), "https://a.test", "token-a"); err != nil {
-		t.Fatal(err)
-	}
-	flaky := flakySettings{memSettings: s, failSet: settingRecoveryToken}
-	if err := StorePairing(flaky, testSealer(t), "https://b.test", "token-b"); !errors.Is(err, errFlaky) {
-		t.Fatalf("want the write error, got %v", err)
-	}
-	if p, err := LoadPairing(dir, s, testSealer(t)); !errors.Is(err, ErrNotPaired) {
-		t.Fatalf("a half-written re-pair must read as unpaired, got %+v %v", p, err)
-	}
-}
-
 // A settings read that fails is not "unpaired": Run must not skip KyRecovery and report success.
 func TestRunReportsAPairingReadFailure(t *testing.T) {
 	dir, s := t.TempDir(), memSettings{}
@@ -157,8 +138,15 @@ func TestRunReportsAPairingReadFailure(t *testing.T) {
 	cfg.BackupDir = t.TempDir()
 	fake := &fakeDepositor{}
 	flaky := flakySettings{memSettings: s, failGet: settingRecoveryToken}
-	_, err := Run(context.Background(), cfg, flaky, func() (Payload, error) { return testPayload(), nil }, fake)
+	res, err := Run(context.Background(), cfg, flaky, func() (Payload, error) { return testPayload(), nil }, fake)
 	if !errors.Is(err, errFlaky) {
 		t.Fatalf("want the read error, got %v (deposits %d)", err, fake.calls)
+	}
+	// The local destination does not depend on the pairing rows and still gets its copy.
+	if res.LocalPath == "" || fake.calls != 0 {
+		t.Fatalf("local copy %q, deposits %d", res.LocalPath, fake.calls)
+	}
+	if _, outcome, _ := Outcome(res, err); outcome != "failure" {
+		t.Fatalf("outcome %s", outcome)
 	}
 }

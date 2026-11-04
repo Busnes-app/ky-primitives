@@ -15,8 +15,9 @@ import (
 
 // restore is the product-side half of the ceremony: k custodian shares typed from their cards,
 // combined here, used once, and dropped. It refuses a capsule from another service before
-// touching the key, and prints the authenticated manifest so the operator can compare
-// CapsuleID and CreatedAt against kyrecovery's deposit record.
+// touching the key, reassembles any file sealed as parts by SplitFile, and prints the
+// authenticated manifest so the operator can compare CapsuleID and CreatedAt against
+// kyrecovery's deposit record.
 func Restore(capsulePath, targetDir, expectService string, shareStrings []string, stdout io.Writer) error {
 	raw, err := os.ReadFile(capsulePath)
 	if err != nil {
@@ -44,6 +45,9 @@ func Restore(capsulePath, targetDir, expectService string, shareStrings []string
 	m, files, err := capsule.Open(raw, priv, targetDir)
 	if err != nil {
 		return err
+	}
+	if err := joinSplitFiles(targetDir); err != nil {
+		return fmt.Errorf("capsule restored into %s but a split file could not be reassembled; restore again into an empty directory: %w", targetDir, err)
 	}
 	fmt.Fprintf(stdout, "Restored %d files from capsule %s\n  service:      %s (v%s)\n  created:      %s\n  recovery key: %s\n  payload hash: %s\n",
 		len(files), AuditSafe(m.CapsuleID), AuditSafe(m.ServiceName), AuditSafe(m.AppVersion), m.CreatedAt.Format(time.RFC3339), AuditSafe(m.RecoveryKeyID), AuditSafe(m.PayloadHash))

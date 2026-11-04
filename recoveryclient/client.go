@@ -274,8 +274,9 @@ type Receipt struct {
 // exactly what left here. 200 is kyrecovery re-sending the receipt for bytes it already
 // holds, which is a success.
 //
-// The upload is ended after five minutes in which no bytes moved, or after 24 hours; either
-// ending returns an error matching context.DeadlineExceeded.
+// The deposit is ended after five minutes in which no bytes of the container were read,
+// which includes waiting for KyRecovery's answer after the last byte, or after 24 hours;
+// either ending returns an error matching context.DeadlineExceeded.
 func (c *Client) Deposit(ctx context.Context, serverURL, apiToken string, container []byte) (Receipt, error) {
 	u, err := endpoint(serverURL, "/api/backup/deposit", c.allowPrivate)
 	if err != nil {
@@ -304,18 +305,15 @@ func (c *Client) Deposit(ctx context.Context, serverURL, apiToken string, contai
 	upload.Timeout = 0
 	resp, err := upload.Do(req)
 	if err != nil {
-		if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
-			err = fmt.Errorf("%w: %w", cause, err)
-		}
-		return Receipt{}, fmt.Errorf("%w: deposit request failed: %w", ErrRemote, err)
+		return Receipt{}, withCause(ctx, fmt.Errorf("%w: deposit request failed: %w", ErrRemote, err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return Receipt{}, fmt.Errorf("%w: deposit rejected (%d): %s", ErrRemote, resp.StatusCode, remoteMessage(resp.Body))
+		return Receipt{}, withCause(ctx, fmt.Errorf("%w: deposit rejected (%d): %s", ErrRemote, resp.StatusCode, remoteMessage(resp.Body)))
 	}
 	var rcpt Receipt
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&rcpt); err != nil {
-		return Receipt{}, fmt.Errorf("%w: deposit receipt: %w", ErrRemote, err)
+		return Receipt{}, withCause(ctx, fmt.Errorf("%w: deposit receipt: %w", ErrRemote, err))
 	}
 	sum := sha256.Sum256(container)
 	if want := hex.EncodeToString(sum[:]); rcpt.Digest != want {
@@ -328,6 +326,15 @@ func (c *Client) Deposit(ctx context.Context, serverURL, apiToken string, contai
 		return Receipt{}, fmt.Errorf("%w: deposit receipt has no capsule_id", ErrRemote)
 	}
 	return rcpt, nil
+}
+
+// withCause adds why ctx ended (context.DeadlineExceeded when the deposit budget ran out) to
+// an error that the closed connection reported first as something else.
+func withCause(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
+		return fmt.Errorf("%w: %w", cause, err)
+	}
+	return err
 }
 
 // progressReader calls touch whenever a read of the container moves bytes.

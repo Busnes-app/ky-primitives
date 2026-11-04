@@ -93,35 +93,26 @@ func (c *Client) FindUser(ctx context.Context, attribute, value string) (User, e
 		return User{}, err
 	}
 	var list struct {
-		TotalResults *int    `json:"totalResults"`
-		Resources    *[]User `json:"Resources"`
+		TotalResults *int   `json:"totalResults"`
+		Resources    []User `json:"Resources"`
 	}
 	if err := c.do(ctx, http.MethodGet, u, nil, &list); err != nil {
 		return User{}, err
 	}
-	// Not found is a list that says so. An empty or foreign body, or a page that counts
-	// matches it does not carry, must not read as "no such user": the caller would create a
-	// duplicate or skip a deactivation.
-	if list.TotalResults == nil && list.Resources == nil {
-		return User{}, fmt.Errorf("%w: not a list response", ErrMalformedResponse)
-	}
-	var resources []User
-	if list.Resources != nil {
-		resources = *list.Resources
-	}
-	total := len(resources)
-	if list.TotalResults != nil {
-		total = *list.TotalResults
-	}
-	switch {
-	case len(resources) > 1 || total > 1:
-		return User{}, ErrAmbiguous
-	case len(resources) == 0 && total == 0:
+	// Not found is a list that reports zero matches (totalResults is REQUIRED, RFC 7644
+	// section 3.4.2). An empty or foreign body, or a page without the count, must not read as
+	// "no such user": the caller would create a duplicate or skip a deactivation.
+	switch total := list.TotalResults; {
+	case total != nil && *total < len(list.Resources):
+		return User{}, fmt.Errorf("%w: list reports %d matches and carries %d", ErrMalformedResponse, *total, len(list.Resources))
+	case len(list.Resources) == 0 && total != nil && *total == 0:
 		return User{}, ErrNotFound
-	case len(resources) == 0:
-		return User{}, fmt.Errorf("%w: list reports %d matches and carries none", ErrMalformedResponse, total)
+	case len(list.Resources) == 0:
+		return User{}, fmt.Errorf("%w: the response neither carries a user nor reports zero matches", ErrMalformedResponse)
+	case len(list.Resources) > 1 || total != nil && *total > 1:
+		return User{}, ErrAmbiguous
 	}
-	found := resources[0]
+	found := list.Resources[0]
 	// userName is not caseExact in the core schema; externalId is.
 	if attribute == "externalId" && found.ExternalID != value || attribute == "userName" && !strings.EqualFold(found.UserName, value) {
 		return User{}, fmt.Errorf("%w: the user returned does not match the filter", ErrMalformedResponse)
@@ -239,7 +230,7 @@ func (c *Client) do(ctx context.Context, method, target string, in, out any) err
 	// Go would replay the body, and the bearer, wherever the server pointed.
 	client := *base
 	client.CheckRedirect = func(r *http.Request, _ []*http.Request) error {
-		return fmt.Errorf("scim: server redirected to %s://%s%s; redirects are refused", r.URL.Scheme, r.URL.Host, r.URL.Path)
+		return fmt.Errorf("scim: server redirected to %s://%s%s; redirects are refused", r.URL.Scheme, r.URL.Host, r.URL.EscapedPath())
 	}
 	resp, err := client.Do(req)
 	if err != nil {
