@@ -35,8 +35,9 @@ The 0x11d copies also had three ways to fail on a malformed share, all reachable
 `FuzzCombineNeverPanics` holds that line. Distinct non-zero indices make every Lagrange
 denominator non-zero, so no input can divide by zero however malformed.
 
-`Split` resamples a zero leading coefficient. Without it the polynomial's degree drops and
-fewer shares than promised recover that byte, once every 256 draws.
+`Split` never resamples a zero leading coefficient. A uniformly random top coefficient, zero
+included, keeps threshold-1 shares independent of the secret; refusing zero would rule out one
+secret value per byte for anyone holding threshold-1 shares.
 
 ```go
 shares, err := shamir.Split(key, 3, 5)   // any 3 of 5
@@ -173,6 +174,18 @@ What it pins, each by a named test:
   temp dir), wipes it, and sweeps a killed drill's residue first
   (`TestDrillOpensWhatItSealedAndWipesScratch`, `TestDrillUsesTheCallerScratchRoot`). `Restore` checks the
   manifest's service name before combining shares (`TestRestoreRefusesOtherServiceBeforeCombine`).
+- A file over one member (`MaxCapsuleFileBytes`, 64 MiB), in practice a large database
+  snapshot, goes into the payload through `SplitFile` as ordered parts `<path>.000-of-NNN`.
+  `Restore` and `Drill` reassemble every such file before the product or its checks see the
+  directory. A capsule without parts restores as before, and missing, renumbered or extra
+  parts are `ErrSplitParts` (`TestSplitDatabaseRestoresAndJoins`, `TestSplitDatabaseDrills`,
+  `TestJoinRefusesPartsThatDoNotAddUp`). The whole capsule stays within
+  `MaxCapsuleTotalBytes`, and warning the operator before a database gets near it is the
+  product's job.
+- `Deposit` ends after five minutes in which no bytes of the container were read (waiting
+  for KyRecovery's answer after the last byte included), or after 24 hours, with an error
+  matching `context.DeadlineExceeded`; a large capsule on a slow uplink completes while it
+  keeps moving (`TestDepositBudgetRenewsOnProgressAndEndsAStall`).
 - `SQLiteSnapshot` copies through the live handle with `VACUUM INTO`; copying the file misses
   every commit still in the write-ahead log. The lib has no SQLite driver, so the
   row-in-the-WAL case is proven in each product's tests.

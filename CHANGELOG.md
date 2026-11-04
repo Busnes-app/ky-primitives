@@ -13,6 +13,38 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `recoveryclient.SplitFile` splits a file larger than one capsule member
+  (64 MiB), such as a large SQLite snapshot, into ordered parts `<path>.000-of-NNN` for the
+  payload, and `Restore` and `Drill` reassemble them before the product or its checks see
+  the directory (new `ErrSplitParts` for parts that do not add up). A capsule without parts
+  restores as before; a single `<path>.000-of-001` is left alone. The names match
+  kydrive-server's own parts, whose `JoinDatabase` then finds nothing left to do; parts
+  are removed last first, so an interrupted cleanup is still one it can finish.
+  Upgrade impact for kydrive-server: a capsule with missing or renumbered parts now fails
+  inside `Restore` with `recoveryclient.ErrSplitParts` instead of later with its own
+  `ErrDatabaseParts`, and in a drill as the library's "Reassemble" check; the bad set is
+  not joined either way, but its restore test for that case needs the new error. KyNotes-server's `.000` names are not touched.
+- Root: `recoveryclient.Client.Deposit` ends after five minutes in which no bytes of the
+  container were read (waiting for KyRecovery's answer included) or 24 hours, instead of
+  15 minutes for the whole upload, so a large capsule on a slow uplink completes; expiry
+  matches `context.DeadlineExceeded`. KyRecovery-server needs its matching per-chunk
+  deadline for this to help past 15 minutes.
+- Root: `recoveryclient.NextRun` treats a last-attempt stamp in the future (a clock that
+  ran ahead and was corrected) as due now, instead of stopping backups until that date.
+- Root: `capsule.Open` refuses a GNU sparse tar member. The tar reader fills a sparse
+  file's holes after the expansion budget has counted the stream, so a few KiB could
+  expand to 64 MiB per member at restore. `Seal` never writes one.
+- Root: `recoveryclient.Run` returns a failed read of the pairing rows, after still
+  writing the local copy, instead of treating it as "unpaired" and reporting a
+  local-only run as success. The dialer also refuses the NAT64 local-use prefix
+  `64:ff9b:1::/48`.
+- Root: `scim.Client.FindUser` answers `ErrNotFound` only for a list whose
+  `totalResults` is 0. A body without users and without that count, or one reporting
+  fewer matches than it carries, is `ErrMalformedResponse`. An empty value is refused
+  before any request. A refused redirect no longer puts the filter in the error text.
+- Root: `scim.Client.CreateUser` and `ReplaceUser` always send `roles`, as `[]` when the
+  user has none, so a replace revokes a last role at a server that keeps omitted
+  attributes. `scim.User` documents that an absent `active` decodes as false.
 - Root (minor): `syncauth.Middleware` answers a replayed event ID with 200
   `{"status":"duplicate_event"}` instead of 401 `invalid_signature`, and, when the
   `Replay` implements the new `syncauth.Forgetter` (the `NewMemoryReplay` guard does),

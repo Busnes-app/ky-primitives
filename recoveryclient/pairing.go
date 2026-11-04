@@ -73,12 +73,22 @@ func ClearPairing(settings Settings) error {
 
 // HasPairing reports whether a URL and a token are stored. It never opens the token.
 func HasPairing(settings Settings) bool {
-	u, err := settings.Get(settingRecoveryURL)
-	if err != nil || u == "" {
-		return false
+	paired, err := pairingStored(settings)
+	return paired && err == nil
+}
+
+// pairingStored is HasPairing with read failures reported: only a missing row means unpaired.
+func pairingStored(settings Settings) (bool, error) {
+	for _, k := range []string{settingRecoveryURL, settingRecoveryToken} {
+		v, err := settings.Get(k)
+		if errors.Is(err, ErrNotFound) || err == nil && v == "" {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
 	}
-	t, err := settings.Get(settingRecoveryToken)
-	return err == nil && t != ""
+	return true, nil
 }
 
 // LoadPairing returns the pairing, or ErrNotPaired when any part is missing. A pairing

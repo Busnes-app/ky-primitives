@@ -21,7 +21,7 @@ func jsonResponse(status int, v any) *http.Response {
 }
 
 func TestValidateURLRefusesPrivateByDefault(t *testing.T) {
-	for _, u := range []string{"https://100.64.0.1", "https://192.0.0.9", "https://198.18.0.1", "https://240.0.0.1", "https://[64:ff9b::a00:1]", "https://192.168.1.91", "https://10.0.0.5", "https://127.0.0.1"} {
+	for _, u := range []string{"https://100.64.0.1", "https://192.0.0.9", "https://198.18.0.1", "https://240.0.0.1", "https://[64:ff9b::a00:1]", "https://[64:ff9b:1::a00:1]", "https://192.168.1.91", "https://10.0.0.5", "https://127.0.0.1"} {
 		if err := ValidateURL(u, false); err == nil {
 			t.Errorf("%s accepted", u)
 		}
@@ -127,4 +127,74 @@ func TestRemoteMessageIsBounded(t *testing.T) {
 	if got := AuditSafe("a\x00b\ncd" + strings.Repeat("z", 500)); len(got) > 210 || strings.ContainsAny(got, "\x00\n") {
 		t.Errorf("AuditSafe %d %q", len(got), got[:10])
 	}
+}
+
+// A deposit on a slow uplink takes as long as it takes while bytes keep moving; one that
+// stalls ends after the idle limit with context.DeadlineExceeded (Q6, client half).
+func TestDepositBudgetRenewsOnProgressAndEndsAStall(t *testing.T) {
+	old := depositIdle
+	depositIdle = 100 * time.Millisecond
+	t.Cleanup(func() { depositIdle = old })
+
+	container := []byte("a-container-sent-slowly")
+	sum := sha256.Sum256(container)
+	rcpt := Receipt{CapsuleID: "cap-1", Digest: hex.EncodeToString(sum[:]), SizeBytes: int64(len(container)), DepositedAt: time.Now()}
+	slow := NewClientWithTransportForTest(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.ContentLength != int64(len(container)) {
+			t.Errorf("ContentLength %d, want %d", r.ContentLength, len(container))
+		}
+		var got []byte
+		b := make([]byte, 1)
+		for {
+			// One byte every 30 ms: the whole upload takes about seven idle limits.
+			time.Sleep(30 * time.Millisecond)
+			if err := r.Context().Err(); err != nil {
+				return nil, err
+			}
+			n, err := r.Body.Read(b)
+			got = append(got, b[:n]...)
+			if err == io.EOF {
+				break
+			}
+		}
+		if !bytes.Equal(got, container) {
+			t.Errorf("body %q", got)
+		}
+		return jsonResponse(http.StatusCreated, rcpt), nil
+	}), Options{})
+	if _, err := slow.Deposit(context.Background(), "https://recovery.example.test", "tok", container); err != nil {
+		t.Fatalf("a deposit that keeps moving must complete: %v", err)
+	}
+
+	stalled := NewClientWithTransportForTest(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	}), Options{})
+	start := time.Now()
+	_, err := stalled.Deposit(context.Background(), "https://recovery.example.test", "tok", container)
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ErrRemote) {
+		t.Fatalf("a stalled deposit must end with DeadlineExceeded, got %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("stall took %v to end", d)
+	}
+
+	// KyRecovery takes the whole container, answers, then stalls in the body.
+	for _, status := range []int{http.StatusCreated, http.StatusServiceUnavailable} {
+		quiet := NewClientWithTransportForTest(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			_, _ = io.ReadAll(r.Body)
+			return &http.Response{StatusCode: status, Body: io.NopCloser(stalledBody{r.Context()})}, nil
+		}), Options{})
+		if _, err := quiet.Deposit(context.Background(), "https://recovery.example.test", "tok", container); !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ErrRemote) {
+			t.Fatalf("status %d, stalled body: want DeadlineExceeded, got %v", status, err)
+		}
+	}
+}
+
+// stalledBody blocks until ctx ends, as a response body from a peer that went quiet does.
+type stalledBody struct{ ctx context.Context }
+
+func (b stalledBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
 }

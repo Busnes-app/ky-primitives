@@ -1,6 +1,7 @@
 package recoveryclient
 
 import (
+	"context"
 	"errors"
 	"os"
 	"testing"
@@ -104,5 +105,41 @@ func TestClearPairingHalfClearedStillClears(t *testing.T) {
 	}
 	if len(s) != 0 {
 		t.Errorf("rows left: %v", s)
+	}
+}
+
+// flakySettings fails Get of one key, the way a busy database does now and then.
+type flakySettings struct {
+	memSettings
+	failGet string
+}
+
+var errFlaky = errors.New("database is locked")
+
+func (f flakySettings) Get(k string) (string, error) {
+	if k == f.failGet {
+		return "", errFlaky
+	}
+	return f.memSettings.Get(k)
+}
+
+// A settings read that fails is not "unpaired": Run must not skip KyRecovery and report success.
+func TestRunReportsAPairingReadFailure(t *testing.T) {
+	dir, s := t.TempDir(), memSettings{}
+	pair(t, dir, s)
+	cfg := runCfg(dir, testSealer(t))
+	cfg.BackupDir = t.TempDir()
+	fake := &fakeDepositor{}
+	flaky := flakySettings{memSettings: s, failGet: settingRecoveryToken}
+	res, err := Run(context.Background(), cfg, flaky, func() (Payload, error) { return testPayload(), nil }, fake)
+	if !errors.Is(err, errFlaky) {
+		t.Fatalf("want the read error, got %v (deposits %d)", err, fake.calls)
+	}
+	// The local destination does not depend on the pairing rows and still gets its copy.
+	if res.LocalPath == "" || fake.calls != 0 {
+		t.Fatalf("local copy %q, deposits %d", res.LocalPath, fake.calls)
+	}
+	if _, outcome, _ := Outcome(res, err); outcome != "failure" {
+		t.Fatalf("outcome %s", outcome)
 	}
 }

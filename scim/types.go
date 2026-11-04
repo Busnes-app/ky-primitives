@@ -25,7 +25,14 @@ const (
 )
 
 // User is the core User resource with the attributes the suite exchanges. The server owns
-// ID and Meta; the client never sends them.
+// ID and Meta; the client never sends them. CreateUser and ReplaceUser always send roles,
+// as [] when Roles is empty, so a replace revokes a last role.
+//
+// Active is a plain bool, so a body without "active" decodes as false, the same as an explicit
+// false. A server decoding inbound users with this type must check for the key itself (decode
+// into a map or json.RawMessage first) and apply its own default, or an omitted attribute
+// creates a disabled account; a client that fetches a user and replaces it must set Active
+// explicitly or it deactivates the account.
 type User struct {
 	Schemas     []string     `json:"schemas"`
 	ID          string       `json:"id,omitempty"`

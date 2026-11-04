@@ -73,8 +73,10 @@ func NextRun(defaultInterval time.Duration, settings Settings) (time.Time, bool,
 	if err != nil {
 		return time.Time{}, false, err
 	}
-	if last.IsZero() {
-		return time.Now().UTC(), true, nil
+	// A stamp in the future is a clock that ran ahead and was corrected; counting from it would
+	// stop backups until that date with no error anywhere.
+	if now := time.Now().UTC(); last.IsZero() || last.After(now) {
+		return now, true, nil
 	}
 	return last.Add(interval), true, nil
 }

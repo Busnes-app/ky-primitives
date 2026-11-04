@@ -552,3 +552,95 @@ func TestTransportErrorsDoNotCarryTheQuery(t *testing.T) {
 		t.Fatalf("query leaked into the transport error: %v", err)
 	}
 }
+
+// A replace that revokes a user's last role must say so: a server may keep an attribute a PUT
+// leaves out (RFC 7644 section 3.5.1), so roles goes on the wire as [] and is never omitted.
+func TestCreateAndReplaceAlwaysSendRoles(t *testing.T) {
+	f := newFake(t)
+	c := f.client()
+	ctx := context.Background()
+
+	admin := User{ExternalID: "local-7", UserName: "bob", Active: true,
+		Roles: []MultiValue{{Value: "admin"}}}
+	created, err := c.CreateUser(ctx, admin)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if _, body := f.last(); !strings.Contains(string(body), `"roles":[{"value":"admin"}]`) {
+		t.Fatalf("create lost the roles: %s", body)
+	}
+
+	admin.Roles = nil
+	if _, err := c.ReplaceUser(ctx, created.ID, admin); err != nil {
+		t.Fatalf("ReplaceUser: %v", err)
+	}
+	_, body := f.last()
+	var sent map[string]json.RawMessage
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if string(sent["roles"]) != "[]" {
+		t.Fatalf("a replace without roles must send roles: [], sent %s", body)
+	}
+
+	if _, err := c.CreateUser(ctx, User{UserName: "carol", Active: true, Roles: []MultiValue{}}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if _, body := f.last(); !strings.Contains(string(body), `"roles":[]`) {
+		t.Fatalf("a create without roles must send roles: [], sent %s", body)
+	}
+}
+
+// Only a list that says "no matches" is ErrNotFound. Anything else would let a caller create a
+// duplicate or skip a deactivation on a broken or paged answer.
+func TestFindUserNotFoundOnlyFromAnHonestEmptyList(t *testing.T) {
+	var body string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, Token: token, HTTPClient: srv.Client()}
+	ctx := context.Background()
+	for _, b := range []string{`{"totalResults":0,"Resources":[]}`, `{"totalResults":0}`} {
+		body = b
+		if _, err := c.FindUser(ctx, "userName", "nobody"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: want ErrNotFound, got %v", b, err)
+		}
+	}
+	for _, b := range []string{`{"totalResults":1,"Resources":[]}`, `{"totalResults":2,"Resources":[]}`, `{"Resources":[]}`, `{"totalResults":0,"Resources":[{"id":"1","userName":"nobody"}]}`, `{}`, `{"error":"filtering unsupported"}`, ``} {
+		body = b
+		if _, err := c.FindUser(ctx, "userName", "nobody"); !errors.Is(err, ErrMalformedResponse) {
+			t.Errorf("%q: want ErrMalformedResponse, got %v", b, err)
+		}
+	}
+	body = `{"Resources":[{"id":"1","userName":"a"}]}`
+	if u, err := c.FindUser(ctx, "userName", "a"); err != nil || u.ID != "1" {
+		t.Errorf("one result without totalResults: %v %+v", err, u)
+	}
+}
+
+// An empty value matches a user without the attribute, and that user passes the match check.
+func TestFindUserRefusesAnEmptyValue(t *testing.T) {
+	f := newFake(t)
+	for _, v := range []string{"", "  "} {
+		if _, err := f.client().FindUser(context.Background(), "externalId", v); err == nil {
+			t.Fatalf("FindUser(%q) was sent", v)
+		}
+	}
+	if len(f.requests) != 0 {
+		t.Fatalf("%d requests sent", len(f.requests))
+	}
+}
+
+// The redirect target carries FindUser's filter, which names a user; the error must not.
+func TestRedirectErrorOmitsTheQuery(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path+"%0AFORGED/?"+r.URL.RawQuery, http.StatusMovedPermanently)
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, Token: token, HTTPClient: srv.Client()}
+	_, err := c.FindUser(context.Background(), "userName", "alice@example.com")
+	if err == nil || !strings.Contains(err.Error(), "redirect") || strings.Contains(err.Error(), "alice") || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("want a one-line redirect refusal without the filter, got %q", err)
+	}
+}

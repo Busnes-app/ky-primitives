@@ -83,22 +83,33 @@ func (c *Client) FindUser(ctx context.Context, attribute, value string) (User, e
 	if attribute != "externalId" && attribute != "userName" {
 		return User{}, fmt.Errorf("scim: FindUser supports externalId and userName, not %q", attribute)
 	}
+	// An empty value would match a user without the attribute and pass the check below.
+	if strings.TrimSpace(value) == "" {
+		return User{}, fmt.Errorf("scim: FindUser needs a %s to look for", attribute)
+	}
 	quoted := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value)
 	u, err := c.endpoint(attribute+` eq "`+quoted+`"`, "Users")
 	if err != nil {
 		return User{}, err
 	}
 	var list struct {
-		TotalResults int    `json:"totalResults"`
+		TotalResults *int   `json:"totalResults"`
 		Resources    []User `json:"Resources"`
 	}
 	if err := c.do(ctx, http.MethodGet, u, nil, &list); err != nil {
 		return User{}, err
 	}
-	switch {
-	case len(list.Resources) == 0:
+	// Not found is a list that reports zero matches (totalResults is REQUIRED, RFC 7644
+	// section 3.4.2). An empty or foreign body, or a page without the count, must not read as
+	// "no such user": the caller would create a duplicate or skip a deactivation.
+	switch total := list.TotalResults; {
+	case total != nil && *total < len(list.Resources):
+		return User{}, fmt.Errorf("%w: list reports %d matches and carries %d", ErrMalformedResponse, *total, len(list.Resources))
+	case len(list.Resources) == 0 && total != nil && *total == 0:
 		return User{}, ErrNotFound
-	case len(list.Resources) > 1 || list.TotalResults > 1:
+	case len(list.Resources) == 0:
+		return User{}, fmt.Errorf("%w: the response neither carries a user nor reports zero matches", ErrMalformedResponse)
+	case len(list.Resources) > 1 || total != nil && *total > 1:
 		return User{}, ErrAmbiguous
 	}
 	found := list.Resources[0]
@@ -146,13 +157,25 @@ func (c *Client) DeleteUser(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, u, nil, nil)
 }
 
-// outbound is the user as sent: schema filled in, server-owned fields cleared.
-func outbound(user User) User {
+// outboundUser is the body of a create or replace. Roles is always sent, as [] when the user
+// has none: a server may keep or default an attribute a PUT leaves out (RFC 7644 section
+// 3.5.1), so omitting it would let a revoked last role survive downstream.
+type outboundUser struct {
+	User
+	Roles []MultiValue `json:"roles"`
+}
+
+// outbound is the user as sent: schema filled in, server-owned fields cleared, roles present.
+func outbound(user User) outboundUser {
 	user.ID, user.Meta = "", nil
 	if len(user.Schemas) == 0 {
 		user.Schemas = []string{UserSchema}
 	}
-	return user
+	roles := user.Roles
+	if roles == nil {
+		roles = []MultiValue{}
+	}
+	return outboundUser{User: user, Roles: roles}
 }
 
 // user is the URL of one user. The ID is path-escaped and must be a real segment: an empty
@@ -207,7 +230,7 @@ func (c *Client) do(ctx context.Context, method, target string, in, out any) err
 	// Go would replay the body, and the bearer, wherever the server pointed.
 	client := *base
 	client.CheckRedirect = func(r *http.Request, _ []*http.Request) error {
-		return fmt.Errorf("scim: server redirected to %s; redirects are refused", r.URL.Redacted())
+		return fmt.Errorf("scim: server redirected to %s://%s%s; redirects are refused", r.URL.Scheme, r.URL.Host, r.URL.EscapedPath())
 	}
 	resp, err := client.Do(req)
 	if err != nil {
