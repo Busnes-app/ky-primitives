@@ -237,6 +237,8 @@ func TestMemoryGuardBoundaryAndMixedWindows(t *testing.T) {
 		t.Fatalf("replay at the window boundary: got %v, want ErrReplay", err)
 	}
 
+	rp = NewMemoryReplay(0, 0)
+	o.Replay = rp
 	wide := Options{Window: 15 * time.Minute, Now: func() time.Time { return now }, Replay: rp}
 	old, _ := Sign(key, now.Add(-8*time.Minute), "t", "evt-old", body)
 	if _, err := Verify(key, old, body, wide); err != nil {
@@ -248,5 +250,32 @@ func TestMemoryGuardBoundaryAndMixedWindows(t *testing.T) {
 	}
 	if _, err := Verify(key, old, body, wide); !errors.Is(err, ErrReplay) {
 		t.Fatalf("a narrower call evicted an ID the wide window still accepts: %v", err)
+	}
+}
+
+// An ID kept for a wide window must not trap expired IDs behind it and fill the guard.
+func TestMemoryGuardReclaimsExpiredIDsBehindALiveOne(t *testing.T) {
+	start := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	now := start
+	clock := func() time.Time { return now }
+	body := []byte("x")
+	rp := NewMemoryReplay(0, 2)
+	wide := Options{Window: 15 * time.Minute, Now: clock, Replay: rp}
+	narrow := Options{Now: clock, Replay: rp}
+	a, _ := Sign(key, start, "t", "evt-a", body)
+	b, _ := Sign(key, start, "t", "evt-b", body)
+	if _, err := Verify(key, a, body, wide); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(key, b, body, narrow); err != nil {
+		t.Fatal(err)
+	}
+	now = start.Add(6 * time.Minute)
+	c, _ := Sign(key, now, "t", "evt-c", body)
+	if _, err := Verify(key, c, body, narrow); err != nil {
+		t.Fatalf("guard full of an expired ID behind a live one: %v", err)
+	}
+	if _, err := Verify(key, a, body, wide); !errors.Is(err, ErrReplay) {
+		t.Fatalf("the live wide-window ID was dropped: %v", err)
 	}
 }

@@ -173,16 +173,19 @@ func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 	if err != nil {
 		return Event{}, ErrBadTimestamp
 	}
-	now := time.Now
+	// One reading of the clock for the window check and the replay guard: two readings
+	// could straddle an expiry and let the guard forget an ID the window still accepted.
+	clock := time.Now
 	if o.Now != nil {
-		now = o.Now
+		clock = o.Now
 	}
+	now := clock()
 	window := o.Window
 	if window == 0 {
 		window = DefaultWindow
 	}
-	if d := now().Sub(at); d > window || d < -window {
-		return Event{}, fmt.Errorf("%w: event %s, receiver %s", ErrStale, at.UTC().Format(time.RFC3339), now().UTC().Format(time.RFC3339))
+	if d := now.Sub(at); d > window || d < -window {
+		return Event{}, fmt.Errorf("%w: event %s, receiver %s", ErrStale, at.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
 	}
 	want := mac(key, canonical(h.Timestamp, h.EventType, h.EventID, body))
 	if !hmac.Equal([]byte(h.Signature), []byte(want)) {
@@ -191,7 +194,7 @@ func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 	if o.Replay != nil {
 		var err error
 		if m, ok := o.Replay.(*memoryReplay); ok {
-			err = m.check(h.EventID, at, now(), window)
+			err = m.check(h.EventID, at, now, window)
 		} else {
 			err = o.Replay.Check(h.EventID, at)
 		}
@@ -250,7 +253,20 @@ func (m *memoryReplay) check(id string, at, now time.Time, window time.Duration)
 		return ErrReplay
 	}
 	if len(m.order) >= m.max {
-		return ErrReplayGuardFull
+		// Insertion order is not expiry order when windows differ, so expired IDs can sit
+		// behind a live one; reclaim them before refusing.
+		live := m.order[:0]
+		for _, seen := range m.order {
+			if m.expiry[seen].Before(now) {
+				delete(m.expiry, seen)
+			} else {
+				live = append(live, seen)
+			}
+		}
+		m.order = live
+		if len(m.order) >= m.max {
+			return ErrReplayGuardFull
+		}
 	}
 	m.expiry[id] = at.Add(max(window, m.window))
 	m.order = append(m.order, id)
