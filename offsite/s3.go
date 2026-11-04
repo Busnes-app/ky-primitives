@@ -90,6 +90,10 @@ func (t *s3Target) Put(ctx context.Context, name string, r io.Reader, _ int64) e
 		return err
 	}
 	req.Body, req.ContentLength = io.NopCloser(body), size
+	if size == 0 {
+		// A non-nil body with ContentLength 0 is sent chunked, which S3 refuses.
+		req.Body = http.NoBody
+	}
 	resp, err := t.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("offsite: S3 PUT: %w", err)

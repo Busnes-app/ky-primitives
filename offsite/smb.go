@@ -114,6 +114,12 @@ func (t *smbTarget) Put(ctx context.Context, name string, r io.Reader, _ int64) 
 		return err
 	}
 	defer cleanup()
+	return t.put(share, name, &contextReader{ctx: ctx, r: r})
+}
+
+// put stages and publishes one object on a mounted share; Put and Test share it so a
+// passing Test means the server accepts the rename every Put depends on.
+func (t *smbTarget) put(share *smb2.Share, name string, r io.Reader) error {
 	final := path.Join(t.dir, name)
 	if parent := path.Dir(final); parent != "." {
 		if err := share.MkdirAll(parent, 0700); err != nil {
@@ -133,7 +139,7 @@ func (t *smbTarget) Put(ctx context.Context, name string, r io.Reader, _ int64) 
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, &contextReader{ctx: ctx, r: r}); err != nil {
+	if _, err := io.Copy(f, r); err != nil {
 		_ = f.Close()
 		_ = share.Remove(tmp)
 		return err
@@ -210,13 +216,12 @@ func (t *smbTarget) Test(ctx context.Context) error {
 		return err
 	}
 	defer cleanup()
-	if t.dir != "" {
-		if err := share.MkdirAll(t.dir, 0700); err != nil {
-			return err
-		}
-	}
+	// SMB put never replaces, so clear a probe an interrupted Test left behind.
 	probe := path.Join(t.dir, pingName)
-	if err := share.WriteFile(probe, []byte("ping"), 0600); err != nil {
+	if err := share.Remove(probe); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := t.put(share, pingName, &contextReader{ctx: ctx, r: strings.NewReader("ping")}); err != nil {
 		return err
 	}
 	return share.Remove(probe)

@@ -48,13 +48,13 @@ var ErrPrivateDestination = errors.New("recoveryclient: private destinations are
 // with it, a KyRecovery on the operator's LAN is dialled; without it, only public addresses.
 // HTTPS is required either way.
 func NewClient(o Options) *Client {
-	return newClient(o, net.DefaultResolver.LookupIP)
+	return newClient(o, net.DefaultResolver.LookupIP, (&net.Dialer{Timeout: 10 * time.Second}).DialContext)
 }
 
-// newClient keeps DNS resolution injectable in tests while exercising the real transport.
-func newClient(o Options, lookupIP func(context.Context, string, string) ([]net.IP, error)) *Client {
+// newClient keeps DNS resolution and dialing injectable in tests while exercising the real
+// transport.
+func newClient(o Options, lookupIP func(context.Context, string, string) ([]net.IP, error), dial func(context.Context, string, string) (net.Conn, error)) *Client {
 	allowPrivate := o.AllowPrivate
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
@@ -65,11 +65,22 @@ func newClient(o Options, lookupIP func(context.Context, string, string) ([]net.
 			return nil, err
 		}
 		privateDestination := false
+		var dialErr error
+		// Every allowed address in turn: the custom dialer replaced Go's own fallback, and a
+		// dead first address (often an AAAA without a working IPv6 route) must not end it.
 		for _, ip := range ips {
 			if allowedIP(ip, allowPrivate) {
-				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				dialErr = err
+				continue
 			}
 			privateDestination = privateDestination || allowedIP(ip, true)
+		}
+		if dialErr != nil {
+			return nil, dialErr
 		}
 		if !allowPrivate && privateDestination {
 			return nil, fmt.Errorf("recovery host resolves only to private or reserved addresses: %w; set the private-destination option for a KyRecovery on your own network", ErrPrivateDestination)

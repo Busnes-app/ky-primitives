@@ -192,3 +192,22 @@ func TestS3TargetsDoNotShareSigningKeys(t *testing.T) {
 		t.Fatal("a second target signed with the first target's secret")
 	}
 }
+
+// A non-nil body with ContentLength 0 goes out chunked, which S3 answers with 411.
+func TestS3EmptyPutSendsContentLength(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
+			http.Error(w, "MissingContentLength", http.StatusLengthRequired)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	target, err := Parse(Config{URL: "s3://bucket", S3Endpoint: server.URL, AccessKey: "key", Secret: "secret", Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Put(context.Background(), "empty", strings.NewReader(""), 0); err != nil {
+		t.Fatal(err)
+	}
+}

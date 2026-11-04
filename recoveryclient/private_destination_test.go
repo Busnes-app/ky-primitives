@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestPrivateDestinationLiteralClassification(t *testing.T) {
@@ -61,7 +63,7 @@ func TestPrivateDestinationThroughClaimAndDeposit(t *testing.T) {
 						t.Errorf("unexpected lookup: %s %s", network, name)
 					}
 					return tc.ips, tc.lookup
-				})
+				}, (&net.Dialer{Timeout: 10 * time.Second}).DialContext)
 				var err error
 				if operation == "claim" {
 					_, err = c.ClaimPairing(context.Background(), "https://"+host, "123456", "Svc", "Svc")
@@ -85,5 +87,31 @@ func TestPrivateDestinationThroughClaimAndDeposit(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The transport dialled only the first allowed address, so a dead AAAA ended every claim
+// and deposit even when the A record answered.
+func TestDialFallsBackToTheNextAllowedAddress(t *testing.T) {
+	dead, live := net.ParseIP("2001:db8::1"), net.ParseIP("203.0.113.7")
+	var tried []string
+	c := newClient(Options{AllowPrivate: true}, func(context.Context, string, string) ([]net.IP, error) {
+		return []net.IP{dead, live}, nil
+	}, func(_ context.Context, _, address string) (net.Conn, error) {
+		tried = append(tried, address)
+		if address == net.JoinHostPort(dead.String(), "443") {
+			return nil, errors.New("connect: network is unreachable")
+		}
+		client, server := net.Pipe()
+		_ = server.Close()
+		return client, nil
+	})
+	conn, err := c.client.Transport.(*http.Transport).DialContext(context.Background(), "tcp", "recovery.example.test:443")
+	if err != nil {
+		t.Fatalf("dial = %v after trying %v", err, tried)
+	}
+	_ = conn.Close()
+	if len(tried) != 2 {
+		t.Fatalf("tried %v, want both addresses", tried)
 	}
 }

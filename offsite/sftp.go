@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,6 +153,12 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 		return err
 	}
 	defer cleanup()
+	return t.put(ctx, client, name, &contextReader{ctx: ctx, r: r})
+}
+
+// put stages and publishes one object over an open session; Put and Test share it so a
+// passing Test means the server accepts the rename every Put depends on.
+func (t *sftpTarget) put(ctx context.Context, client *sftp.Client, name string, r io.Reader) error {
 	if t.dir != "" {
 		if err := client.MkdirAll(t.dir); err != nil {
 			return err
@@ -169,7 +176,7 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, &contextReader{ctx: ctx, r: r}); err != nil {
+	if _, err := io.Copy(f, r); err != nil {
 		_ = f.Close()
 		_ = client.Remove(tmp)
 		return err
@@ -180,7 +187,7 @@ func (t *sftpTarget) Put(ctx context.Context, name string, r io.Reader, _ int64)
 	}
 	if err := client.PosixRename(tmp, final); err != nil {
 		_ = client.Remove(tmp)
-		return err
+		return fmt.Errorf("offsite: SFTP publish by posix-rename@openssh.com: %w", err)
 	}
 	return nil
 }
@@ -216,26 +223,10 @@ func (t *sftpTarget) Test(ctx context.Context) error {
 		return err
 	}
 	defer cleanup()
-	if t.dir != "" {
-		if err := client.MkdirAll(t.dir); err != nil {
-			return err
-		}
-	}
-	probe := path.Join(t.dir, pingName)
-	f, err := client.Create(probe)
-	if err != nil {
+	if err := t.put(ctx, client, pingName, &contextReader{ctx: ctx, r: strings.NewReader("ping")}); err != nil {
 		return err
 	}
-	if _, err := f.Write([]byte("ping")); err != nil {
-		_ = f.Close()
-		_ = client.Remove(probe)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = client.Remove(probe)
-		return err
-	}
-	return client.Remove(probe)
+	return client.Remove(path.Join(t.dir, pingName))
 }
 
 type sessionReadCloser struct {

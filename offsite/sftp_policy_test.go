@@ -30,7 +30,7 @@ func startSFTPPolicyPeer(t *testing.T, cfg *ssh.ServerConfig) string {
 			if err != nil {
 				return
 			}
-			go serveSFTP(conn, cfg)
+			go serveSFTP(conn, cfg, nil)
 		}
 	}()
 	return listener.Addr().String()

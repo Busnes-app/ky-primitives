@@ -358,3 +358,68 @@ func TestJWKSRedirectIsRefused(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// A caller that hangs up mid-fetch must not cancel the shared JWKS fetch: the attempt is
+// recorded for everyone, so a cancelled one used to lock every user out of a new key for
+// MinRefresh.
+func TestCancelledCallerDoesNotSpoilTheSharedFetch(t *testing.T) {
+	is := newIssuer(t)
+	v := is.verifier()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = v.Verify(ctx, is.mint(map[string]any{"alg": "RS256", "kid": "junk"}, good(is), nil))
+	if _, err := v.Verify(context.Background(), is.mint(nil, good(is), nil)); err != nil {
+		t.Fatalf("valid token after a cancelled caller: %v", err)
+	}
+}
+
+// The caller's own deadline still bounds its wait while the shared fetch carries on.
+func TestCallerDeadlineBoundsTheWaitForAFetch(t *testing.T) {
+	is := newIssuer(t)
+	release := make(chan struct{})
+	hang := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer func() { close(release); hang.Close() }()
+	v := is.verifier()
+	v.JWKSURL = hang.URL + "/.well-known/jwks.json"
+	hc := hang.Client()
+	hc.Timeout = 5 * time.Second
+	v.HTTPClient = hc
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := v.Verify(ctx, is.mint(nil, good(is), nil)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the caller's deadline", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("caller waited %s for a fetch past its deadline", d)
+	}
+}
+
+// A caller that arrives while someone else's fetch is in flight waits on that fetch, and
+// its own deadline still ends the wait.
+func TestFollowerDeadlineBoundsTheWaitForAFetch(t *testing.T) {
+	is := newIssuer(t)
+	release := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	hang := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+	}))
+	defer func() { close(release); hang.Close() }()
+	v := is.verifier()
+	v.JWKSURL = hang.URL + "/.well-known/jwks.json"
+	hc := hang.Client()
+	hc.Timeout = 5 * time.Second
+	v.HTTPClient = hc
+	go func() { _, _ = v.Verify(context.Background(), is.mint(nil, good(is), nil)) }()
+	<-entered
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := v.Verify(ctx, is.mint(map[string]any{"alg": "RS256", "kid": "other"}, good(is), nil)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the follower's deadline", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("follower waited %s past its deadline", d)
+	}
+}
