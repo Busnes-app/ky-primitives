@@ -220,3 +220,33 @@ func TestMemoryGuardCoversAWiderVerifyWindow(t *testing.T) {
 		t.Fatalf("replay inside the verify window: got %v, want ErrReplay", err)
 	}
 }
+
+// Verify accepts a timestamp exactly Window old, so the guard must still hold it then; and
+// an ID accepted under a wide window must survive a later call made with a narrower one.
+func TestMemoryGuardBoundaryAndMixedWindows(t *testing.T) {
+	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	body := []byte("x")
+	rp := NewMemoryReplay(0, 0)
+
+	edge, _ := Sign(key, now.Add(-DefaultWindow), "t", "evt-edge", body)
+	o := Options{Now: func() time.Time { return now }, Replay: rp}
+	if _, err := Verify(key, edge, body, o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(key, edge, body, o); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay at the window boundary: got %v, want ErrReplay", err)
+	}
+
+	wide := Options{Window: 15 * time.Minute, Now: func() time.Time { return now }, Replay: rp}
+	old, _ := Sign(key, now.Add(-8*time.Minute), "t", "evt-old", body)
+	if _, err := Verify(key, old, body, wide); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := Sign(key, now, "t", "evt-fresh", body)
+	if _, err := Verify(key, fresh, body, o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(key, old, body, wide); !errors.Is(err, ErrReplay) {
+		t.Fatalf("a narrower call evicted an ID the wide window still accepts: %v", err)
+	}
+}

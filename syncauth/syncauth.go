@@ -202,22 +202,22 @@ func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 	return Event{Type: h.EventType, ID: h.EventID, At: at}, nil
 }
 
-// memoryReplay is a bounded in-process replay guard. It forgets IDs only once their
-// timestamp has left the window; when it holds max IDs that are all still inside the window
-// it refuses with ErrReplayGuardFull rather than forgetting one, because a forgotten ID is a
-// replay the signature alone cannot stop.
+// memoryReplay is a bounded in-process replay guard. It forgets an ID only once the
+// timestamp it was accepted with has left the window it was accepted under; when it holds
+// max IDs that are all still inside their windows it refuses with ErrReplayGuardFull rather
+// than forgetting one, because a forgotten ID is a replay the signature alone cannot stop.
 type memoryReplay struct {
 	mu     sync.Mutex
 	window time.Duration
 	max    int
-	seen   map[string]time.Time
+	expiry map[string]time.Time // id -> last instant Verify could still accept it
 	order  []string
 }
 
-// NewMemoryReplay returns a Replay that remembers up to max IDs for window. Use it when the
-// receiver has no table of processed events; a restart forgets everything, which is the
-// window's job to bound. Size max above the events one sender can emit in a window, or the
-// guard refuses under load.
+// NewMemoryReplay returns a Replay that remembers up to max IDs for window, or for
+// Options.Window when Verify uses a wider one. Use it when the receiver has no table of
+// processed events; a restart forgets everything, which is the window's job to bound. Size
+// max above the events one sender can emit in a window, or the guard refuses under load.
 func NewMemoryReplay(window time.Duration, max int) Replay {
 	if window <= 0 {
 		window = DefaultWindow
@@ -225,34 +225,34 @@ func NewMemoryReplay(window time.Duration, max int) Replay {
 	if max <= 0 {
 		max = 10000
 	}
-	return &memoryReplay{window: window, max: max, seen: map[string]time.Time{}}
+	return &memoryReplay{window: window, max: max, expiry: map[string]time.Time{}}
 }
 
 func (m *memoryReplay) Check(id string, at time.Time) error {
 	return m.check(id, at, time.Now(), m.window)
 }
 
-// check forgets IDs older than the wider of the guard's window and the caller's, on the
-// caller's clock, so Verify never accepts a timestamp the guard has already forgotten.
+// check keeps each ID until at+window, with window the wider of the guard's and the
+// caller's, and compares on the caller's clock. Verify accepts |now-at| <= window, so an ID
+// is forgotten only once no Verify under that window could accept its timestamp again.
 func (m *memoryReplay) check(id string, at, now time.Time, window time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cutoff := now.Add(-max(window, m.window))
 	for len(m.order) > 0 {
 		oldest := m.order[0]
-		if t, ok := m.seen[oldest]; ok && t.After(cutoff) {
+		if exp, ok := m.expiry[oldest]; ok && !exp.Before(now) {
 			break
 		}
-		delete(m.seen, oldest)
+		delete(m.expiry, oldest)
 		m.order = m.order[1:]
 	}
-	if _, ok := m.seen[id]; ok {
+	if _, ok := m.expiry[id]; ok {
 		return ErrReplay
 	}
 	if len(m.order) >= m.max {
 		return ErrReplayGuardFull
 	}
-	m.seen[id] = at
+	m.expiry[id] = at.Add(max(window, m.window))
 	m.order = append(m.order, id)
 	return nil
 }
