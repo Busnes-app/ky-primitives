@@ -46,8 +46,9 @@ transaction as the record keeps the two consistent, but only an anchor copy that
 writer cannot reach detects truncation by someone with write access to the database. Keep
 such a copy, for example beside the key file or in the stream `(*logging.Logger).Audit`
 ships. Write it after the transaction commits, never inside `persist`. It can lag the log,
-so check it as a lower bound with `Verify(key, records[:ext.Count], ext)`, alongside the
-full check against the stored anchor.
+so check it as a lower bound: the log must hold at least `ext.Count` records (fewer is
+truncation), and `Verify(key, records[:ext.Count], ext)` must pass, alongside the full
+check against the stored anchor.
 
 `Resume` requires it too. A valid digest does not make a record the tail — every record in
 a healthy chain carries one — so resuming from the middle was accepted and the next append
