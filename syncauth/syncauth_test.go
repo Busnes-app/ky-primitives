@@ -186,6 +186,73 @@ func TestMiddlewareVerifiesAndReplaysTheBodyToTheHandler(t *testing.T) {
 	}
 }
 
+func TestMiddlewareReleasesFailedEventsAndAcksDuplicates(t *testing.T) {
+	body := []byte(`{"user":{"id":"u1"}}`)
+	status := http.StatusServiceUnavailable
+	calls := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if status == 0 {
+			panic("handler blew up")
+		}
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+		}
+	})
+	var rejected []error
+	srv := Middleware(func(*http.Request) ([]byte, error) { return key, nil },
+		Options{Replay: NewMemoryReplay(time.Minute, 1)}, 0,
+		func(_ *http.Request, err error) { rejected = append(rejected, err) })(next)
+	h, _ := Sign(key, time.Now(), "user.deprovisioned", "evt-1", body)
+	send := func() *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+		h.Apply(req)
+		w := httptest.NewRecorder()
+		func() {
+			defer func() { _ = recover() }()
+			srv.ServeHTTP(w, req)
+		}()
+		return w
+	}
+
+	// A failed delivery releases the ID, so the sender's retry reaches the handler.
+	if w := send(); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first delivery: %d", w.Code)
+	}
+	status = 0 // a panicking handler releases it too
+	send()
+	// The guard holds one ID; a released one must not still occupy the slot.
+	status = http.StatusOK // writes nothing: net/http answers 200
+	if w := send(); w.Code != http.StatusOK || calls != 3 {
+		t.Fatalf("retry after failures: %d, handler calls %d", w.Code, calls)
+	}
+	// Once processed, a retry is acknowledged without running the handler again.
+	w := send()
+	if w.Code != http.StatusOK || calls != 3 || !strings.Contains(w.Body.String(), "duplicate_event") {
+		t.Fatalf("duplicate: %d %s, handler calls %d", w.Code, w.Body.String(), calls)
+	}
+	if len(rejected) != 1 || !errors.Is(rejected[0], ErrReplay) {
+		t.Fatalf("onReject: %v", rejected)
+	}
+}
+
+func TestMemoryReplayForgetFreesTheSlot(t *testing.T) {
+	rp := NewMemoryReplay(time.Minute, 1).(Forgetter)
+	now := time.Now()
+	if err := rp.Check("a", now); err != nil {
+		t.Fatal(err)
+	}
+	rp.Forget("a")
+	rp.Forget("never-seen")
+	if err := rp.Check("b", now); err != nil {
+		t.Fatalf("forgotten ID still holds the slot: %v", err)
+	}
+	if err := rp.Check("b", now); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay after forget: %v", err)
+	}
+}
+
 func FuzzVerify(f *testing.F) {
 	body := []byte(`{"a":1}`)
 	h, _ := Sign(key, time.Now(), "t", "id", body)
