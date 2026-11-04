@@ -140,6 +140,12 @@ func Parse(c Config) (Target, error) {
 
 // Key returns a stable target identity with credentials removed. URLs that
 // cannot be parsed return an empty key.
+//
+// The SFTP or SMB user is a credential here and is left out, but SFTP paths are
+// relative to the account root and shares differ by account: sftp://alice@nas/b
+// and sftp://bob@nas/b get the same Key and are different directories. A caller
+// that keys per-target state (what was already uploaded) on Key adds the
+// effective user, and for SFTP the HostKey, itself.
 func Key(c Config) string {
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Scheme == "" {

@@ -28,6 +28,11 @@ outside that profile.
 | `smb://host/share/dir` | `AccessKey`, `Secret` | `AccessKey` may be `DOMAIN\user`; SMB1 is never negotiated. |
 | `file:///absolute/path` | none | Writes owner-only files by temporary file and rename. |
 
+`Key` names a target without its credentials, and it treats the SFTP or SMB user as one.
+Two accounts on the same host and path therefore share a `Key` while writing to different
+directories. State kept per target, such as which objects were already uploaded, must add
+the effective user (and the SFTP `HostKey`) to the key.
+
 Passwords in URLs are rejected. SMB rejects all userinfo because endpoints are
 commonly logged. SFTP never connects successfully without a pinned SHA256 host
 fingerprint. Calling `Test` without a pin returns `UnknownHostKeyError` carrying

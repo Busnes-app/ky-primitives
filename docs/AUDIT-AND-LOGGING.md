@@ -53,7 +53,12 @@ such a copy, for example beside the key file or in the stream `(*logging.Logger)
 ships. Write it after the transaction commits, never inside `persist`. It can lag the log,
 so check it as a lower bound: the log must hold at least `ext.Count` records (fewer is
 truncation), and `Verify(key, records[:ext.Count], ext)` must pass, alongside the full
-check against the stored anchor.
+check against the stored anchor. With `cmd/kyauditverify`, which checks a log against one
+anchor exactly, run it twice: once over the whole log with the stored anchor, and once over
+the first `Count` records with the outside copy, for example
+`grep -v '^[[:space:]]*$' trail.jsonl | head -n 42 | kyauditverify -key @audit.key -anchor 42:<hash>`.
+A log with more records than the outside copy counted fails the second check by design
+when given whole ("records past an anchor"); that is lag, not tampering.
 
 `Resume` requires it too. A valid digest does not make a record the tail — every record in
 a healthy chain carries one — so resuming from the middle was accepted and the next append
