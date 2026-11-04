@@ -73,7 +73,11 @@ func Run(ctx context.Context, cfg RunConfig, settings Settings, collect func() (
 	if err != nil {
 		return Result{}, err
 	}
-	paired := HasPairing(settings)
+	// A failed read is not "unpaired": skipping KyRecovery would report the run as a success.
+	paired, err := pairingStored(settings)
+	if err != nil {
+		return Result{}, err
+	}
 	if !paired && cfg.BackupDir == "" {
 		return Result{}, ErrNoDestination
 	}
