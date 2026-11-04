@@ -40,6 +40,12 @@ returns nil.
 cannot catch a log with records removed from the end, because what remains still chains
 correctly, so the anchor is a parameter rather than an option.
 
+The anchor carries no MAC. Anyone who can rewrite it can cut records off the end and set it
+to the surviving tail, which every surviving row already shows. Storing it in the same
+transaction as the record keeps the two consistent, but only an anchor copy that the log's
+writer cannot reach detects truncation by someone with write access to the database. Keep
+such a copy, for example beside the key file or in the shipped `logging.Audit` stream.
+
 `Resume` requires it too. A valid digest does not make a record the tail — every record in
 a healthy chain carries one — so resuming from the middle was accepted and the next append
 minted a sequence number that already existed. The anchor is the only thing that knows
@@ -54,7 +60,7 @@ anchor it would ask for is already one of its arguments.
 ```go
 chain, err := auditchain.New(key)          // or Resume(key, lastRecord, anchor)
 rec, err := chain.Append(ctx, func(r auditchain.Record, a auditchain.Anchor) error {
-    return store.WriteRecordAndAnchor(r, a) // one transaction
+    return store.WriteRecordAndAnchor(r, a) // one transaction; also copy a outside the DB
 }, "login", user)
 err = auditchain.Verify(key, records, anchor)
 err = auditchain.VerifyStream(key, rows, anchor) // same, for a log too large to hold
