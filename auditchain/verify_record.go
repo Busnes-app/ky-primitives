@@ -45,6 +45,9 @@ func VerifyRecord(key []byte, r Record) error {
 // would satisfy the signature and mean nothing — do not copy that pattern outside this
 // function. This is the shape that fits: the caller still owes one transaction over the
 // returned records and anchor together.
+//
+// Every field must be valid UTF-8; otherwise Replay returns an error wrapping
+// ErrInvalidUTF8 that names the tuple, and no records.
 func Replay(key []byte, tuples [][]string) ([]Record, Anchor, error) {
 	c, err := New(key)
 	if err != nil {
@@ -55,7 +58,7 @@ func Replay(key []byte, tuples [][]string) ([]Record, Anchor, error) {
 	for _, fields := range tuples {
 		rec, err := c.Append(context.Background(), noop, fields...)
 		if err != nil {
-			return nil, Anchor{}, err
+			return nil, Anchor{}, fmt.Errorf("auditchain: tuple %d: %w", len(records), err)
 		}
 		records = append(records, rec)
 	}

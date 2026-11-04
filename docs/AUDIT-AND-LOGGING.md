@@ -29,6 +29,11 @@ Every field is length-prefixed. Joining on a delimiter lets a field containing i
 into its neighbour and produce another record's digest, forging a record without the key;
 `TestFieldsAreUnambiguousAcrossDelimiters` pins that.
 
+Fields must be valid UTF-8. `Append` and `Replay` refuse anything else with
+`ErrInvalidUTF8` and store nothing: `encoding/json` writes invalid bytes as U+FFFD, so a
+record stored or exported as JSON would fail its own digest and read as tampered forever.
+Pass request-derived text through `logging.AuditFields`, which replaces invalid bytes.
+
 Persistence is a parameter of `Append`, not the caller's next statement. The chain's
 in-memory head is a claim about what is on disk: advancing it first meant a failed insert
 left the next record chained onto one that never existed, and a record stored without its
