@@ -325,24 +325,24 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 	if known && fresh {
 		return k, nil
 	}
-	if recentAttempt {
-		if known {
-			return k, nil
-		}
-		return nil, ErrUnknownKey
+	if recentAttempt && known {
+		return k, nil
 	}
 
+	// An unknown kid after a recent attempt still takes fetchMu, so it waits for a fetch in
+	// flight instead of failing before that fetch lands; the recheck below refuses it.
 	v.fetchMu.Lock()
-	defer v.fetchMu.Unlock()
 	// Another verification may have fetched while this one waited.
 	v.mu.Lock()
 	if k, ok := v.keys[kid]; ok && v.now().Sub(v.fetchedAt) < maxAge {
 		v.mu.Unlock()
+		v.fetchMu.Unlock()
 		return k, nil
 	}
 	if !v.attemptedAt.IsZero() && v.now().Sub(v.attemptedAt) < minRefresh {
 		k, ok := v.keys[kid]
 		v.mu.Unlock()
+		v.fetchMu.Unlock()
 		if ok {
 			return k, nil
 		}
@@ -351,28 +351,43 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 	v.attemptedAt = v.now()
 	v.mu.Unlock()
 
-	// The fetch serves every waiter and sets attemptedAt for all of them, so a caller that
-	// hangs up must not cancel it: one dropped request would lock everyone out of a rotated
-	// key for MinRefresh. The cap bounds an HTTPClient configured without a timeout.
-	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	keys, err := v.fetch(fetchCtx)
-
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if err != nil {
-		// A stale set beats no set: the issuer being unreachable must not log everyone out.
-		if k, ok := v.keys[kid]; ok {
-			return k, nil
+	// The fetch serves every waiter and sets attemptedAt for all of them, so it runs on its
+	// own: a caller that hangs up stops waiting but cannot cancel it, or one dropped request
+	// would lock everyone out of a rotated key for MinRefresh.
+	var (
+		found *rsa.PublicKey
+		ferr  error
+		done  = make(chan struct{})
+	)
+	go func() {
+		defer v.fetchMu.Unlock()
+		defer close(done)
+		keys, err := v.fetch(context.WithoutCancel(ctx))
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		if err != nil {
+			// A stale set beats no set: the issuer being unreachable must not log everyone out.
+			if k, ok := v.keys[kid]; ok {
+				found = k
+				return
+			}
+			ferr = err
+			return
 		}
-		return nil, err
+		v.keys = keys
+		v.fetchedAt = v.now()
+		if k, ok := v.keys[kid]; ok {
+			found = k
+			return
+		}
+		ferr = ErrUnknownKey
+	}()
+	select {
+	case <-done:
+		return found, ferr
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	v.keys = keys
-	v.fetchedAt = v.now()
-	if k, ok := v.keys[kid]; ok {
-		return k, nil
-	}
-	return nil, ErrUnknownKey
 }
 
 // ErrInsecureIssuer means the issuer or JWKS URL is not HTTPS. Key discovery over plaintext
@@ -410,6 +425,12 @@ func (v *Verifier) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error)
 	base := v.HTTPClient
 	if base == nil {
 		base = &http.Client{Timeout: 10 * time.Second}
+	}
+	if base.Timeout == 0 {
+		// The fetch outlives the request that started it, so something must bound it.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 	}
 	// Key discovery needs no redirect; following one would let a redirector choose the keys.
 	client := *base

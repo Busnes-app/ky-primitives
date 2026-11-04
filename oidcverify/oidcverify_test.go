@@ -372,3 +372,25 @@ func TestCancelledCallerDoesNotSpoilTheSharedFetch(t *testing.T) {
 		t.Fatalf("valid token after a cancelled caller: %v", err)
 	}
 }
+
+// The caller's own deadline still bounds its wait while the shared fetch carries on.
+func TestCallerDeadlineBoundsTheWaitForAFetch(t *testing.T) {
+	is := newIssuer(t)
+	release := make(chan struct{})
+	hang := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer func() { close(release); hang.Close() }()
+	v := is.verifier()
+	v.JWKSURL = hang.URL + "/.well-known/jwks.json"
+	hc := hang.Client()
+	hc.Timeout = 5 * time.Second
+	v.HTTPClient = hc
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := v.Verify(ctx, is.mint(nil, good(is), nil)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the caller's deadline", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("caller waited %s for a fetch past its deadline", d)
+	}
+}
