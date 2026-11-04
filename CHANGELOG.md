@@ -22,8 +22,8 @@ Keep unpublished changes separate from tagged releases.
   are removed last first, so an interrupted cleanup is still one it can finish.
   Upgrade impact for kydrive-server: a capsule with missing or renumbered parts now fails
   inside `Restore` with `recoveryclient.ErrSplitParts` instead of later with its own
-  `ErrDatabaseParts`; nothing is joined either way, but its test for that case needs the
-  new error. KyNotes-server's `.000` names are not touched.
+  `ErrDatabaseParts`, and in a drill as the library's "Reassemble" check; the bad set is
+  not joined either way, but its restore test for that case needs the new error. KyNotes-server's `.000` names are not touched.
 - Root: `recoveryclient.Client.Deposit` ends after five minutes in which no bytes of the
   container were read (waiting for KyRecovery's answer included) or 24 hours, instead of
   15 minutes for the whole upload, so a large capsule on a slow uplink completes; expiry

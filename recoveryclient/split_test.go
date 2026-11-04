@@ -113,6 +113,9 @@ func TestJoinWithoutPartsChangesNothing(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(dir, "data", "app.db")); string(got) != "app.db" || len(entries) != 5 {
 		t.Fatalf("directory changed: %q %v", got, entries)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "data", "archive.000-of-001")); err != nil {
+		t.Fatalf("a lone one-part name was treated as a split: %v", err)
+	}
 }
 
 func TestJoinRefusesPartsThatDoNotAddUp(t *testing.T) {
