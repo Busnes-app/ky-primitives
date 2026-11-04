@@ -86,11 +86,12 @@ type Verifier struct {
 	// MaxAge is how long a fetched key set is trusted before a refresh. Default 1h.
 	MaxAge time.Duration
 
-	mu          sync.Mutex // guards keys, fetchedAt, attemptedAt
-	fetchMu     sync.Mutex // single-flight for the HTTP fetch; never held with mu
+	mu          sync.Mutex // guards the fields below
 	keys        map[string]*rsa.PublicKey
 	fetchedAt   time.Time
 	attemptedAt time.Time
+	inflight    chan struct{} // closed when the fetch in progress finishes; nil when idle
+	fetchErr    error         // the last fetch's error, for callers that waited on it
 }
 
 type jwk struct {
@@ -303,9 +304,10 @@ func numericDate(raw json.RawMessage) (time.Time, error) {
 
 // key returns the RSA key for kid. The cached set is used while fresh; an unknown kid or a
 // stale set triggers a refresh, at most once per MinRefresh whether the fetch succeeds or
-// fails, so an attacker-chosen kid cannot make every request pay the issuer's timeout. The
-// HTTP fetch runs outside the state mutex under its own single-flight lock, so concurrent
-// verifications share one fetch instead of queueing behind it.
+// fails, so an attacker-chosen kid cannot make every request pay the issuer's timeout.
+// One fetch runs at a time, on its own goroutine: it serves everyone who waits on it, so
+// a caller that hangs up stops waiting but cannot cancel it — one dropped request would
+// otherwise lock everyone out of a rotated key for MinRefresh.
 func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	maxAge := v.MaxAge
 	if maxAge == 0 {
@@ -319,75 +321,56 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 
 	v.mu.Lock()
 	k, known := v.keys[kid]
-	fresh := now.Sub(v.fetchedAt) < maxAge
-	recentAttempt := !v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < minRefresh
-	v.mu.Unlock()
-	if known && fresh {
-		return k, nil
-	}
-	if recentAttempt && known {
-		return k, nil
-	}
-
-	// An unknown kid after a recent attempt still takes fetchMu, so it waits for a fetch in
-	// flight instead of failing before that fetch lands; the recheck below refuses it.
-	v.fetchMu.Lock()
-	// Another verification may have fetched while this one waited.
-	v.mu.Lock()
-	if k, ok := v.keys[kid]; ok && v.now().Sub(v.fetchedAt) < maxAge {
+	switch {
+	case known && now.Sub(v.fetchedAt) < maxAge:
 		v.mu.Unlock()
-		v.fetchMu.Unlock()
 		return k, nil
-	}
-	if !v.attemptedAt.IsZero() && v.now().Sub(v.attemptedAt) < minRefresh {
-		k, ok := v.keys[kid]
+	case known && (v.inflight != nil || (!v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < minRefresh)):
+		// A stale key beats waiting on a refresh.
 		v.mu.Unlock()
-		v.fetchMu.Unlock()
-		if ok {
-			return k, nil
-		}
+		return k, nil
+	case v.inflight != nil:
+		done := v.inflight
+		v.mu.Unlock()
+		return v.await(ctx, done, kid)
+	case !v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < minRefresh:
+		v.mu.Unlock()
 		return nil, ErrUnknownKey
 	}
-	v.attemptedAt = v.now()
+	done := make(chan struct{})
+	v.inflight, v.attemptedAt = done, now
 	v.mu.Unlock()
 
-	// The fetch serves every waiter and sets attemptedAt for all of them, so it runs on its
-	// own: a caller that hangs up stops waiting but cannot cancel it, or one dropped request
-	// would lock everyone out of a rotated key for MinRefresh.
-	var (
-		found *rsa.PublicKey
-		ferr  error
-		done  = make(chan struct{})
-	)
 	go func() {
-		defer v.fetchMu.Unlock()
-		defer close(done)
 		keys, err := v.fetch(context.WithoutCancel(ctx))
 		v.mu.Lock()
-		defer v.mu.Unlock()
-		if err != nil {
-			// A stale set beats no set: the issuer being unreachable must not log everyone out.
-			if k, ok := v.keys[kid]; ok {
-				found = k
-				return
-			}
-			ferr = err
-			return
+		if err == nil {
+			v.keys, v.fetchedAt = keys, v.now()
 		}
-		v.keys = keys
-		v.fetchedAt = v.now()
-		if k, ok := v.keys[kid]; ok {
-			found = k
-			return
-		}
-		ferr = ErrUnknownKey
+		v.fetchErr, v.inflight = err, nil
+		v.mu.Unlock()
+		close(done)
 	}()
+	return v.await(ctx, done, kid)
+}
+
+// await waits for the fetch behind done, or for the caller to give up.
+func (v *Verifier) await(ctx context.Context, done <-chan struct{}, kid string) (*rsa.PublicKey, error) {
 	select {
 	case <-done:
-		return found, ferr
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	// A stale set beats no set: the issuer being unreachable must not log everyone out.
+	if k, ok := v.keys[kid]; ok {
+		return k, nil
+	}
+	if v.fetchErr != nil {
+		return nil, v.fetchErr
+	}
+	return nil, ErrUnknownKey
 }
 
 // ErrInsecureIssuer means the issuer or JWKS URL is not HTTPS. Key discovery over plaintext
