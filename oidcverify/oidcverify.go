@@ -351,7 +351,12 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 	v.attemptedAt = v.now()
 	v.mu.Unlock()
 
-	keys, err := v.fetch(ctx)
+	// The fetch serves every waiter and sets attemptedAt for all of them, so a caller that
+	// hangs up must not cancel it: one dropped request would lock everyone out of a rotated
+	// key for MinRefresh. The cap bounds an HTTPClient configured without a timeout.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	keys, err := v.fetch(fetchCtx)
 
 	v.mu.Lock()
 	defer v.mu.Unlock()

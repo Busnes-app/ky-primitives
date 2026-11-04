@@ -358,3 +358,17 @@ func TestJWKSRedirectIsRefused(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// A caller that hangs up mid-fetch must not cancel the shared JWKS fetch: the attempt is
+// recorded for everyone, so a cancelled one used to lock every user out of a new key for
+// MinRefresh.
+func TestCancelledCallerDoesNotSpoilTheSharedFetch(t *testing.T) {
+	is := newIssuer(t)
+	v := is.verifier()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = v.Verify(ctx, is.mint(map[string]any{"alg": "RS256", "kid": "junk"}, good(is), nil))
+	if _, err := v.Verify(context.Background(), is.mint(nil, good(is), nil)); err != nil {
+		t.Fatalf("valid token after a cancelled caller: %v", err)
+	}
+}
