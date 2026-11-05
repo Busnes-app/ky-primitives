@@ -475,3 +475,50 @@ func TestMemoryReplayRetainsInclusiveExpiryAndReclaimsCapacity(t *testing.T) {
 		t.Fatalf("event after acceptance window: %v", err)
 	}
 }
+
+func TestMemoryReplayCannotReinsertAfterConcurrentExpiry(t *testing.T) {
+	body := []byte("signed")
+	at := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+	window := time.Minute
+	expiry := at.Add(window)
+	rp := NewMemoryReplay(window, 1).(*memoryReplay)
+	h, _ := Sign(key, at, "user.updated", "original", body)
+	if _, err := Verify(key, h, body, Options{Window: window, Replay: rp, Now: func() time.Time { return at }}); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := Sign(key, expiry, "user.updated", "fresh", body)
+	done := make(chan error, 1)
+	clock := func() time.Time {
+		// Schedule a fresh delivery after expiry between an unprotected clock
+		// sample and admission. Protected sampling makes it wait until this
+		// replay has been rejected. TryLock avoids sleeps or a scheduler race.
+		unprotected := rp.mu.TryLock()
+		if unprotected {
+			rp.mu.Unlock()
+		}
+		go func() {
+			_, err := Verify(key, fresh, body, Options{Window: window, Replay: rp, Now: func() time.Time { return expiry.Add(time.Nanosecond) }})
+			if err == nil {
+				// A failed fresh handler releases its one slot before the paused
+				// replay resumes, rather than merely masking it with a full guard.
+				rp.Forget("fresh")
+			}
+			done <- err
+		}()
+		if unprotected {
+			if err := <-done; err != nil {
+				done <- err
+				return expiry.Add(-time.Nanosecond)
+			}
+			done <- nil
+		}
+		return expiry.Add(-time.Nanosecond)
+	}
+	_, replayErr := Verify(key, h, body, Options{Window: window, Replay: rp, Now: clock})
+	if err := <-done; err != nil {
+		t.Fatalf("fresh concurrent delivery: %v", err)
+	}
+	if !errors.Is(replayErr, ErrReplay) {
+		t.Fatalf("paused replay reinserted after expiry/eviction: %v", replayErr)
+	}
+}

@@ -52,6 +52,8 @@ original tuple.
 Overlapping success, failure and panic deliveries, forged pending retries and unrelated
 events are covered by `TestMiddlewareDoesNotAcknowledgeInFlightDelivery`. Clock/window,
 inclusive-expiry and bounded-capacity regressions cover the memory guard.
+`TestMemoryReplayCannotReinsertAfterConcurrentExpiry` controls a fresh delivery and
+failure release around expiry; sampling time outside admission's lock makes it fail.
 
 ## oidcverify
 
