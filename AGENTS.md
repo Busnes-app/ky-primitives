@@ -37,6 +37,11 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 - Receivers own durable replay prevention and session invalidation. Preserve the
   issuer/client/session scope and the leeway-inclusive replay cutoff documented under
   the Back-channel logout section of [docs/IDENTITY.md](docs/IDENTITY.md#back-channel-logout); verification alone never claims offboarding.
+- `syncauth.Middleware` returns retryable 503 for an authenticated duplicate still
+  running in the same middleware instance. Failed processing releases a Forgetter
+  guard before pending state is cleared. The memory guard validates timestamps and
+  expiry under one lock using Verify's clock and complete acceptance window;
+  custom guards retain that responsibility and cross-process durability.
 
 ## Verification
 

@@ -25,13 +25,20 @@ mux.Handle("POST /api/sync", syncauth.Middleware(keyFn, syncauth.Options{Replay:
 
 An event ID is reserved when the request verifies. When the `Replay` is a
 `syncauth.Forgetter` (the memory guard is), `Middleware` forgets the ID if the handler answers
-anything but 2xx or panics, so the sender's retry runs again. A retry that arrives while the
-first delivery is still running is acknowledged as a duplicate; if that delivery then fails,
-the event is lost, so keep the handler well inside the sender's timeout. A `Replay` that is
+anything but 2xx or panics, so the sender's retry runs again. An authenticated retry while
+the first delivery is running receives 503 with `Retry-After: 1`; it is not acknowledged as
+finished. Pending tracking belongs to one middleware instance in one process. Receivers
+running multiple processes still need a shared pending/completed store. A `Replay` that is
 not a `Forgetter` is never released, and must drop the ID itself when the handler fails. A retry of an event already
 processed answers 200 `{"status":"duplicate_event"}` without calling the handler; `logReject`
 still sees `ErrReplay`. A receiver that calls `Verify` itself does the same: `Forget` the ID
 when processing fails, and answer `ErrReplay` with 2xx.
+
+The memory guard samples the verifier's clock and admits timestamps atomically with
+expiry/replay checks. It remembers an ID through `at + max(guard window, Verify window)`,
+inclusive; a shorter configured guard window cannot admit a replay still accepted by
+`Verify`. Custom or wrapped guards remain responsible for matching the verifier's clock
+and complete acceptance window. Pending tracking does not add restart durability.
 
 Pinned: every bound field changes the verdict (`TestVerifyBindsEveryField`); a missing
 signature, a timestamp outside the window in either direction, and a short key each refuse
@@ -42,6 +49,9 @@ configured, and hands the handler exactly the bytes that were signed
 releases the ID and a processed one is acknowledged as a duplicate
 (`TestMiddlewareReleasesFailedEventsAndAcksDuplicates`); `FuzzVerify` accepts only the
 original tuple.
+Overlapping success, failure and panic deliveries, forged pending retries and unrelated
+events are covered by `TestMiddlewareDoesNotAcknowledgeInFlightDelivery`. Clock/window,
+inclusive-expiry and bounded-capacity regressions cover the memory guard.
 
 ## oidcverify
 
