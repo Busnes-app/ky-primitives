@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -340,5 +341,184 @@ func TestMiddlewareReportsAFlushTheWriterCannotDo(t *testing.T) {
 	mw.ServeHTTP(plainWriter{httptest.NewRecorder()}, req)
 	if !errors.Is(flushErr, http.ErrNotSupported) {
 		t.Fatalf("flush through the controller: %v, want http.ErrNotSupported", flushErr)
+	}
+}
+
+func TestMiddlewareDoesNotAcknowledgeInFlightDelivery(t *testing.T) {
+	for _, outcome := range []string{"success", "failure", "panic"} {
+		t.Run(outcome, func(t *testing.T) {
+			body := []byte(`{"user":{"id":"u1"}}`)
+			h, _ := Sign(key, time.Now(), "user.deprovisioned", "overlap", body)
+			started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var calls atomic.Int32
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ev, _ := EventFromContext(r)
+				if ev.ID != "overlap" {
+					return
+				}
+				if calls.Add(1) == 1 {
+					close(started)
+					<-release
+					switch outcome {
+					case "failure":
+						w.WriteHeader(http.StatusServiceUnavailable)
+					case "panic":
+						panic("failed first delivery")
+					}
+				}
+			})
+			server := Middleware(func(*http.Request) ([]byte, error) { return key, nil },
+				Options{Replay: NewMemoryReplay(0, 10)}, 0, nil)(next)
+			send := func(headers Headers) *httptest.ResponseRecorder {
+				r := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(body))
+				headers.Apply(r)
+				w := httptest.NewRecorder()
+				server.ServeHTTP(w, r)
+				return w
+			}
+			go func() {
+				defer close(done)
+				defer func() { _ = recover() }()
+				send(h)
+			}()
+			<-started
+			pending := send(h)
+			forged := h
+			forged.Signature = "v1=invalid"
+			unauthorized := send(forged)
+			other, _ := Sign(key, time.Now(), "user.created", "unrelated", body)
+			unrelated := send(other)
+			close(release)
+			<-done
+			if pending.Code != http.StatusServiceUnavailable || pending.Header().Get("Retry-After") == "" {
+				t.Fatalf("in-flight retry acknowledged: %d %s", pending.Code, pending.Body.String())
+			}
+			if unauthorized.Code != http.StatusUnauthorized || unrelated.Code != http.StatusOK {
+				t.Fatalf("forged=%d unrelated=%d", unauthorized.Code, unrelated.Code)
+			}
+			if w := send(h); w.Code != http.StatusOK {
+				t.Fatalf("retry after completion: %d", w.Code)
+			}
+			want := int32(2)
+			if outcome == "success" {
+				want = 1
+			}
+			if w := send(h); w.Code != http.StatusOK || calls.Load() != want || !strings.Contains(w.Body.String(), "duplicate_event") {
+				t.Fatalf("completed duplicate=%d calls=%d, want%d", w.Code, calls.Load(), want)
+			}
+		})
+	}
+}
+
+func TestMemoryReplayCoversVerifierClockAndWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		at   time.Time
+	}{
+		{"wider_window", time.Now().Add(-8 * time.Minute).Truncate(time.Second)},
+		{"verifier_clock", time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte("signed")
+			h, _ := Sign(key, tc.at, "user.updated", "clock-window", body)
+			now := tc.at.Add(8 * time.Minute)
+			opts := Options{Window: 15 * time.Minute, Now: func() time.Time { return now }, Replay: NewMemoryReplay(5*time.Minute, 2)}
+			if _, err := Verify(key, h, body, opts); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Verify(key, h, body, opts); !errors.Is(err, ErrReplay) {
+				t.Fatalf("accepted replay still inside verifier window: %v", err)
+			}
+		})
+	}
+}
+
+func TestMemoryReplayRetainsInclusiveExpiryAndReclaimsCapacity(t *testing.T) {
+	body := []byte("signed")
+	at := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := at
+	window := 10 * time.Minute
+	reads := 0
+	opts := Options{Window: window, Replay: NewMemoryReplay(time.Minute, 2), Now: func() time.Time {
+		reads++
+		return now
+	}}
+	verify := func(id string, stamp time.Time) error {
+		t.Helper()
+		h, err := Sign(key, stamp, "user.updated", id, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := reads
+		_, err = Verify(key, h, body, opts)
+		if reads-before != 1 {
+			t.Fatalf("verification sampled its clock%d times", reads-before)
+		}
+		return err
+	}
+	if err := verify("future", at.Add(window)); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify("old", at.Add(-window)); err != nil {
+		t.Fatal(err)
+	}
+	now = at.Add(time.Nanosecond)
+	if err := verify("new", at); err != nil {
+		t.Fatalf("expired non-head ID did not release capacity: %v", err)
+	}
+	now = at.Add(2 * window)
+	if err := verify("future", at.Add(window)); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay at last accepted instant: %v", err)
+	}
+	now = now.Add(time.Nanosecond)
+	if err := verify("future", at.Add(window)); !errors.Is(err, ErrStale) {
+		t.Fatalf("event after acceptance window: %v", err)
+	}
+}
+
+func TestMemoryReplayCannotReinsertAfterConcurrentExpiry(t *testing.T) {
+	body := []byte("signed")
+	at := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+	window := time.Minute
+	expiry := at.Add(window)
+	rp := NewMemoryReplay(window, 1).(*memoryReplay)
+	h, _ := Sign(key, at, "user.updated", "original", body)
+	if _, err := Verify(key, h, body, Options{Window: window, Replay: rp, Now: func() time.Time { return at }}); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := Sign(key, expiry, "user.updated", "fresh", body)
+	done := make(chan error, 1)
+	clock := func() time.Time {
+		// Schedule a fresh delivery after expiry between an unprotected clock
+		// sample and admission. Protected sampling makes it wait until this
+		// replay has been rejected. TryLock avoids sleeps or a scheduler race.
+		unprotected := rp.mu.TryLock()
+		if unprotected {
+			rp.mu.Unlock()
+		}
+		go func() {
+			_, err := Verify(key, fresh, body, Options{Window: window, Replay: rp, Now: func() time.Time { return expiry.Add(time.Nanosecond) }})
+			if err == nil {
+				// A failed fresh handler releases its one slot before the paused
+				// replay resumes, rather than merely masking it with a full guard.
+				rp.Forget("fresh")
+			}
+			done <- err
+		}()
+		if unprotected {
+			if err := <-done; err != nil {
+				done <- err
+				return expiry.Add(-time.Nanosecond)
+			}
+			done <- nil
+		}
+		return expiry.Add(-time.Nanosecond)
+	}
+	_, replayErr := Verify(key, h, body, Options{Window: window, Replay: rp, Now: clock})
+	if err := <-done; err != nil {
+		t.Fatalf("fresh concurrent delivery: %v", err)
+	}
+	if !errors.Is(replayErr, ErrReplay) {
+		t.Fatalf("paused replay reinserted after expiry/eviction: %v", replayErr)
 	}
 }

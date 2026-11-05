@@ -144,6 +144,7 @@ type Options struct {
 	Now func() time.Time
 	// Replay, when set, is asked whether the event ID was already accepted inside the
 	// window; a receiver with a table supplies its own, others use NewMemoryReplay.
+	// Custom guards retain IDs through at+Window, inclusive, using the receiver's clock.
 	Replay Replay
 }
 
@@ -183,27 +184,49 @@ func Verify(key []byte, h Headers, body []byte, o Options) (Event, error) {
 	if err != nil {
 		return Event{}, ErrBadTimestamp
 	}
-	now := time.Now
-	if o.Now != nil {
-		now = o.Now
+	want := mac(key, canonical(h.Timestamp, h.EventType, h.EventID, body))
+	if !hmac.Equal([]byte(h.Signature), []byte(want)) {
+		return Event{}, ErrBadSignature
+	}
+	ev := Event{Type: h.EventType, ID: h.EventID, At: at}
+	if err := checkReplay(ev, o); err != nil {
+		return Event{}, err
+	}
+	return ev, nil
+}
+
+func checkReplay(ev Event, o Options) error {
+	clock := o.Now
+	if clock == nil {
+		clock = time.Now
 	}
 	window := o.Window
 	if window == 0 {
 		window = DefaultWindow
 	}
-	if d := now().Sub(at); d > window || d < -window {
-		return Event{}, fmt.Errorf("%w: event %s, receiver %s", ErrStale, at.UTC().Format(time.RFC3339), now().UTC().Format(time.RFC3339))
+	if m, ok := o.Replay.(*memoryReplay); ok {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		now := clock()
+		if err := checkTimestamp(ev.At, now, window); err != nil {
+			return err
+		}
+		return m.check(ev.ID, ev.At.Add(max(m.window, window)), now)
 	}
-	want := mac(key, canonical(h.Timestamp, h.EventType, h.EventID, body))
-	if !hmac.Equal([]byte(h.Signature), []byte(want)) {
-		return Event{}, ErrBadSignature
+	if err := checkTimestamp(ev.At, clock(), window); err != nil {
+		return err
 	}
 	if o.Replay != nil {
-		if err := o.Replay.Check(h.EventID, at); err != nil {
-			return Event{}, err
-		}
+		return o.Replay.Check(ev.ID, ev.At)
 	}
-	return Event{Type: h.EventType, ID: h.EventID, At: at}, nil
+	return nil
+}
+
+func checkTimestamp(at, now time.Time, window time.Duration) error {
+	if d := now.Sub(at); d > window || d < -window {
+		return fmt.Errorf("%w: event %s, receiver %s", ErrStale, at.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
+	}
+	return nil
 }
 
 // memoryReplay is a bounded in-process replay guard. It forgets IDs only once their
@@ -214,12 +237,13 @@ type memoryReplay struct {
 	mu     sync.Mutex
 	window time.Duration
 	max    int
-	seen   map[string]time.Time
-	order  []string
+	seen   map[string]time.Time // last accepted instant for each event
 }
 
 // NewMemoryReplay returns a Replay that remembers up to max IDs for window; it also
-// implements Forgetter. Use it when the receiver has no table of processed events; a
+// implements Forgetter. Verify uses its own clock and retains each ID for at least
+// its accepted Window, even when that is wider than the guard's window.
+// Use it when the receiver has no table of processed events; a
 // restart forgets everything, which is the window's job to bound. Size max above the events one sender can emit in a window, or the
 // guard refuses under load.
 func NewMemoryReplay(window time.Duration, max int) Replay {
@@ -235,41 +259,40 @@ func NewMemoryReplay(window time.Duration, max int) Replay {
 func (m *memoryReplay) Check(id string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cutoff := time.Now().Add(-m.window)
-	for len(m.order) > 0 {
-		oldest := m.order[0]
-		if t, ok := m.seen[oldest]; ok && t.After(cutoff) {
-			break
+	return m.check(id, at.Add(m.window), time.Now())
+}
+
+// The caller holds mu. Verify samples and validates its clock under the same lock,
+// so a paused verification cannot reinsert an ID another request just expired.
+func (m *memoryReplay) check(id string, expiry, now time.Time) error {
+	if old, ok := m.seen[id]; ok {
+		if !old.Before(now) {
+			if expiry.After(old) {
+				m.seen[id] = expiry
+			}
+			return ErrReplay
 		}
-		delete(m.seen, oldest)
-		m.order = m.order[1:]
+		delete(m.seen, id)
 	}
-	if _, ok := m.seen[id]; ok {
-		return ErrReplay
+	if len(m.seen) >= m.max {
+		for id, expiry := range m.seen {
+			if expiry.Before(now) {
+				delete(m.seen, id)
+			}
+		}
 	}
-	if len(m.order) >= m.max {
+	if len(m.seen) >= m.max {
 		return ErrReplayGuardFull
 	}
-	m.seen[id] = at
-	m.order = append(m.order, id)
+	m.seen[id] = expiry
 	return nil
 }
 
-// Forget drops id from both the map and the order, so the slot is free at once and a later
-// Check of the same ID starts a fresh entry instead of sharing the old one's position.
+// Forget releases the ID and its capacity immediately.
 func (m *memoryReplay) Forget(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.seen[id]; !ok {
-		return
-	}
 	delete(m.seen, id)
-	for i, v := range m.order {
-		if v == id {
-			m.order = append(m.order[:i], m.order[i+1:]...)
-			break
-		}
-	}
 }
 
 type ctxKey struct{}
@@ -291,8 +314,8 @@ func EventFromContext(r *http.Request) (Event, bool) {
 // signature failure. onReject still sees ErrReplay. When o.Replay is a Forgetter and the
 // handler answers anything but 2xx (or panics), Middleware forgets the ID so the sender's
 // retry runs the handler again. A retry that arrives while the first delivery is still
-// running is answered as a duplicate; if that first delivery then fails, the event is lost
-// to that sender, so keep handlers well inside the sender's request timeout. Event IDs are
+// running receives retryable 503 with Retry-After, not a completion acknowledgement.
+// In-flight tracking is local to this middleware instance, not shared across processes. Event IDs are
 // unique per sender only: when keyFn serves several senders, give each its own Replay.
 // A Replay that is not a Forgetter is never released here, so the retry of a failed event
 // is acknowledged as a duplicate and lost; such a Replay must drop the ID itself when the
@@ -301,6 +324,7 @@ func Middleware(keyFn func(r *http.Request) ([]byte, error), o Options, maxBody 
 	if maxBody <= 0 {
 		maxBody = DefaultMaxBody
 	}
+	var pending sync.Map
 	reject := func(w http.ResponseWriter, r *http.Request, err error) {
 		if onReject != nil {
 			onReject(r, err)
@@ -325,7 +349,27 @@ func Middleware(keyFn func(r *http.Request) ([]byte, error), o Options, maxBody 
 				reject(w, r, ErrBodyTooLarge)
 				return
 			}
-			ev, err := Verify(key, FromRequest(r), body, o)
+			verifyOptions := o
+			verifyOptions.Replay = nil
+			ev, err := Verify(key, FromRequest(r), body, verifyOptions)
+			if err != nil {
+				reject(w, r, err)
+				return
+			}
+			if o.Replay != nil {
+				if _, active := pending.LoadOrStore(ev.ID, struct{}{}); active {
+					if onReject != nil {
+						onReject(r, ErrReplay)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("Retry-After", "1")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte(`{"status":"event_pending"}`))
+					return
+				}
+				defer pending.Delete(ev.ID)
+				err = checkReplay(ev, o)
+			}
 			if errors.Is(err, ErrReplay) {
 				if onReject != nil {
 					onReject(r, err)

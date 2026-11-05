@@ -13,6 +13,15 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root: `syncauth.Middleware` returns retryable 503 with `Retry-After: 1` while
+  another authenticated delivery of that ID is running in the same middleware
+  instance. Successful completed duplicates retain 200; failed/panicking handlers
+  still release Forgetter guards. No replay-store interface changed and no
+  cross-process or restart pending-state guarantee is added.
+- Root: `syncauth.Verify` binds the built-in memory replay guard to its clock and
+  full acceptance window. Timestamp validation, expiry and reservation are atomic;
+  inclusive expiry and live IDs survive shorter guard windows and full-capacity
+  reclamation. Custom/wrapped guards still own their clock/window contract.
 - Root (minor): `recoveryclient.SplitFile` splits a file larger than one capsule member
   (64 MiB), such as a large SQLite snapshot, into ordered parts `<path>.000-of-NNN` for the
   payload, and `Restore` and `Drill` reassemble them before the product or its checks see
