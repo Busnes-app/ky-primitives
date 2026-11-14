@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `suitedir.People` (search by name, username or email prefix) and
+  `suitedir.Resolve` (exact addresses) call KyIdentity's `GET /api/suite/people` with the
+  same transport rules as `Apps`. New type `Person{Sub, Name, Email}`. Needs a KyIdentity
+  that serves the route; an older one answers 404, returned as an ordinary status error.
+
 - Root (minor): new `netallow` package. `Parse` reads an admin-configured comma-separated
   list of CIDR ranges or addresses exempt from a product's per-IP rate limits and refuses
   invalid entries, ranges broader than /16 (IPv4) or /48 (IPv6), loopback, zones and
