@@ -1,5 +1,5 @@
 // Package suitedir is the client for KyIdentity's suite directory: which suite apps a user
-// may open, and the URL and shared syncauth secret of a paired app. Server to server, with
+// may open, the organisation's people for a picker, and the URL and shared syncauth secret of a paired app. Server to server, with
 // the calling app's own OAuth client credentials (client_secret_basic). Contract:
 // KyIdentity-server docs/SUITE-DIRECTORY.md.
 package suitedir
@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,6 +78,55 @@ func (c *Client) Apps(ctx context.Context, sub string) ([]App, error) {
 		}
 	}
 	return apps, nil
+}
+
+// Person is a member of the organisation who may open the calling app. Sub is their
+// KyIdentity subject.
+type Person struct {
+	Sub   string `json:"sub"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// People searches the people the user sub may see from this app: q is 2 to 64 characters,
+// limit 1 to 20 or 0 for KyIdentity's default of 10. Entries without a sub or email are dropped.
+func (c *Client) People(ctx context.Context, sub, q string, limit int) ([]Person, error) {
+	v := url.Values{"sub": {sub}, "q": {q}}
+	if limit != 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	return c.people(ctx, v)
+}
+
+// Resolve maps 1 to 100 email addresses to people; unmatched addresses are absent. No
+// addresses is an empty answer without a request.
+func (c *Client) Resolve(ctx context.Context, sub string, emails []string) ([]Person, error) {
+	if len(emails) == 0 {
+		return []Person{}, nil
+	}
+	return c.people(ctx, url.Values{"sub": {sub}, "email": emails})
+}
+
+func (c *Client) people(ctx context.Context, v url.Values) ([]Person, error) {
+	if v.Get("sub") == "" {
+		return nil, errors.New("suitedir: people: sub is required")
+	}
+	var body struct {
+		People []Person `json:"people"`
+	}
+	if err := c.get(ctx, "people", v, &body); err != nil {
+		return nil, err
+	}
+	if body.People == nil {
+		return nil, errors.New("suitedir: people: response has no people list")
+	}
+	people := body.People[:0]
+	for _, p := range body.People {
+		if p.Sub != "" && p.Email != "" {
+			people = append(people, p)
+		}
+	}
+	return people, nil
 }
 
 // Peer fetches the connection details for the paired app client.

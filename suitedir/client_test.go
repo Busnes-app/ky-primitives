@@ -191,3 +191,98 @@ func TestIssuerPathIsKept(t *testing.T) {
 		t.Fatalf("path = %q", path)
 	}
 }
+
+func TestPeopleSearch(t *testing.T) {
+	c, lastReq := serve(t, 200, `{"people":[
+		{"sub":"u1","name":"Alice Example","email":"alice@example.com"},
+		{"sub":"","name":"NoSub","email":"x@example.com"},
+		{"sub":"u3","name":"NoEmail","email":""}]}`)
+	people, err := c.People(context.Background(), "me 1", "ali", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Person{Sub: "u1", Name: "Alice Example", Email: "alice@example.com"}
+	if len(people) != 1 || people[0] != want {
+		t.Fatalf("people = %+v", people)
+	}
+	req := lastReq()
+	q := req.URL.Query()
+	if req.URL.Path != "/api/suite/people" || q.Get("sub") != "me 1" || q.Get("q") != "ali" ||
+		q.Get("limit") != "5" || q.Has("email") {
+		t.Fatalf("request = %s", req.URL)
+	}
+	if id, _, ok := req.BasicAuth(); !ok || id != "kycalendar" {
+		t.Fatal("no basic auth")
+	}
+	if _, err := c.People(context.Background(), "me", "ali", 0); err != nil {
+		t.Fatal(err)
+	}
+	if lastReq().URL.Query().Has("limit") {
+		t.Fatal("limit 0 was sent")
+	}
+}
+
+func TestResolve(t *testing.T) {
+	c, lastReq := serve(t, 200, `{"people":[{"sub":"u1","name":"A","email":"a@example.com"}]}`)
+	people, err := c.Resolve(context.Background(), "me", []string{"a@example.com", "B@example.com"})
+	if err != nil || len(people) != 1 || people[0].Sub != "u1" {
+		t.Fatalf("people = %+v, %v", people, err)
+	}
+	q := lastReq().URL.Query()
+	if got := q["email"]; len(got) != 2 || got[0] != "a@example.com" || got[1] != "B@example.com" || q.Has("q") {
+		t.Fatalf("query = %v", q)
+	}
+
+	c = &Client{Issuer: "https://id.example.com", HTTP: &http.Client{Transport: failTransport{t}}}
+	if people, err := c.Resolve(context.Background(), "me", nil); err != nil || people == nil || len(people) != 0 {
+		t.Fatalf("no emails = %v, %v", people, err)
+	}
+	if _, err := c.People(context.Background(), "", "ali", 0); err == nil {
+		t.Fatal("empty sub accepted")
+	}
+	if _, err := c.Resolve(context.Background(), "", []string{"a@example.com"}); err == nil {
+		t.Fatal("empty sub accepted")
+	}
+}
+
+func TestPeopleErrorsAndMalformedBodies(t *testing.T) {
+	for _, body := range []string{``, `nope`, `{}`, `{"people":{}}`, `{"people":[1]}`} {
+		c, _ := serve(t, 200, body)
+		if p, err := c.People(context.Background(), "me", "ali", 0); err == nil {
+			t.Errorf("people %q = %v, want error", body, p)
+		}
+	}
+	c, _ := serve(t, 401, `{"error":"invalid_client"}`)
+	if _, err := c.Resolve(context.Background(), "me", []string{"a@example.com"}); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("401: err = %v", err)
+	}
+	c, _ = serve(t, 400, `{"error":"invalid_request"}`)
+	if _, err := c.People(context.Background(), "me", "a", 0); err == nil || errors.Is(err, ErrUnauthorized) {
+		t.Errorf("400: err = %v", err)
+	}
+	c, _ = serve(t, 200, `{"people":[],"pad":"`+strings.Repeat("a", maxBody)+`"}`)
+	if _, err := c.People(context.Background(), "me", "ali", 0); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("oversize: err = %v", err)
+	}
+}
+
+func TestPeopleRedirectRefusedAndErrorCarriesNoQuery(t *testing.T) {
+	srv := httptest.NewServer(http.RedirectHandler("https://elsewhere.example/", http.StatusFound))
+	defer srv.Close()
+	c := &Client{Issuer: srv.URL, ClientID: "a", ClientSecret: "b"}
+	_, err := c.Resolve(context.Background(), "secret-sub", []string{"alice@example.com"})
+	if err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("err = %v", err)
+	}
+	srv.Close()
+	_, err2 := c.People(context.Background(), "secret-sub", "alice", 0)
+	for _, e := range []error{err, err2} {
+		if e == nil || strings.Contains(e.Error(), "secret-sub") || strings.Contains(e.Error(), "alice") {
+			t.Fatalf("error leaks the query: %v", e)
+		}
+	}
+	c.Issuer = "http://id.example.com"
+	if _, err := c.People(context.Background(), "me", "ali", 0); !errors.Is(err, ErrInsecureIssuer) {
+		t.Fatalf("insecure issuer: err = %v", err)
+	}
+}

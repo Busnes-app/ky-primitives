@@ -32,7 +32,7 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   `Verify`, `VerifyWithNonce`, and `Middleware`.
 - `recoveryclient.LoadRecoveryKey` validates retained custodian topology at the persistence-read boundary (`2 <= k <= n <= 255`) without repairing missing or corrupt pins/settings.
 - `suitedir` follows KyIdentity-server `docs/SUITE-DIRECTORY.md`. It validates at the
-  boundary: invalid apps are dropped, a peer needs an HTTPS URL and a 32-byte secret.
+  boundary: invalid apps and people without a sub or email are dropped, a peer needs an HTTPS URL and a 32-byte secret.
   HTTPS issuer (loopback http for tests), no redirects, bounded body; no caching.
 - REUSE: `REUSE.toml` names every file's license and copyright; `LICENSES/` holds the
   texts. Copied third-party files (e.g. `recoverykey/testdata/xwing-vector.json`) keep

@@ -174,7 +174,8 @@ against a server that mints unrelated IDs uses those IDs throughout
 
 The client for KyIdentity's suite directory (contract: KyIdentity-server
 `docs/SUITE-DIRECTORY.md`):
-the apps a user may open, for a cross-app switcher, and a paired app's URL and shared
+the apps a user may open, for a cross-app switcher; the organisation's people who may open
+the calling app, for a people picker or to resolve addresses; and a paired app's URL and shared
 syncauth secret, so KyCalendar and KyPost pair without an operator copying either. Called
 server to server with the app's own OAuth client credentials as HTTP Basic.
 
@@ -182,6 +183,8 @@ server to server with the app's own OAuth client credentials as HTTP Basic.
 dir := &suitedir.Client{Issuer: cfg.IssuerURL, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret}
 apps, err := dir.Apps(ctx, claims.Subject)   // "" lists every launchable app
 peer, err := dir.Peer(ctx, "kypost")
+people, err := dir.People(ctx, claims.Subject, "ali", 10)   // picker: q 2-64 chars, limit 1-20 (0 = 10)
+people, err = dir.Resolve(ctx, claims.Subject, []string{"alice@example.com"}) // 1-100 addresses
 if errors.Is(err, suitedir.ErrNoPeer) { /* not paired: use explicit config */ }
 ```
 
@@ -195,4 +198,6 @@ or an HTTPS URL are dropped (`TestAppsSendsBasicAuthAndDropsInvalidEntries`); a 
 the requested client, an HTTPS URL and a base64 secret of exactly 32 bytes
 (`TestMalformedBodiesAreErrors`); 401 is `ErrUnauthorized`, 404 `no_peer` is `ErrNoPeer`,
 and any other status is neither (`TestStatusErrors`); bodies are read to 1 MiB
-(`TestOversizeBodyIsRefused`).
+(`TestOversizeBodyIsRefused`). `People` and `Resolve` require a `sub`, drop people
+without a sub or email, send no request for an empty address list, and follow the same
+redirect, size and status rules; their errors carry no query (`TestPeople*`, `TestResolve`).

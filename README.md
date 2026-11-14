@@ -56,7 +56,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`syncauth`](docs/IDENTITY.md#syncauth) | One definition of how KySignOn signs a directory-sync event and how a product verifies it. |
 | [`oidcverify`](docs/IDENTITY.md#oidcverify) | Verifies the RS256 tokens KySignOn issues against its JWKS, on the standard library. |
 | [`scim`](docs/IDENTITY.md#scim) | The SCIM 2.0 client KySignOn provisions accounts with, and the RFC 7643 User type it shares with a server. |
-| [`suitedir`](docs/IDENTITY.md#suitedir) | Asks KyIdentity which suite apps a user may open, and for a paired app's URL and shared syncauth secret. |
+| [`suitedir`](docs/IDENTITY.md#suitedir) | Asks KyIdentity which suite apps a user may open, which organisation people the calling app can offer, and for a paired app's URL and shared syncauth secret. |
 | [`netallow`](docs/NETWORK.md#netallow) | The office-network allowlist that exempts requests from per-IP rate limits. |
 
 ## offsite nested module
