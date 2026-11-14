@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): new `netallow` package. `Parse` reads an admin-configured comma-separated
+  list of CIDR ranges or addresses exempt from a product's per-IP rate limits and refuses
+  invalid entries, ranges broader than /16 (IPv4) or /48 (IPv6), loopback, zones and
+  IPv4-mapped IPv6 ranges; `Exempt` matches an already-resolved client address and counts
+  the match. An empty list matches nothing. No existing package changed.
 - Root: `syncauth.Middleware` returns retryable 503 with `Retry-After: 1` while
   another authenticated delivery of that ID is running in the same middleware
   instance. Successful completed duplicates retain 200; failed/panicking handlers

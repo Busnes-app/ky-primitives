@@ -19,6 +19,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   and non-SHA-1 RSA authentication/certificate signatures; host pins never waive
   key strength. SMB remains an explicit compatibility destination outside the
   strong-cryptography profile documented in `offsite/README.md`.
+- `netallow` matches only an address the caller already resolved through its
+  trusted-proxy handling; it never reads a forwarding header. Keep the /16 and /48
+  breadth floors and the loopback refusal.
 - Before a root or offsite module tag, update `CHANGELOG.md` with the released
   changes, upgrade/format impact, migration steps and known vulnerability IDs.
   Keep the two version streams and unpublished source changes separate.
