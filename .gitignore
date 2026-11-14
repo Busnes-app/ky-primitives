@@ -1,1 +1,4 @@
 /.worktrees/
+
+# Binaries: a bare `go build ./cmd/kyauditverify` writes this to the root.
+/kyauditverify
