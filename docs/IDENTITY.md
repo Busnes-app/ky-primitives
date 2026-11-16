@@ -185,6 +185,7 @@ apps, err := dir.Apps(ctx, claims.Subject)   // "" lists every launchable app
 peer, err := dir.Peer(ctx, "kypost")
 people, err := dir.People(ctx, claims.Subject, "ali", 10)   // picker: q 2-64 chars, limit 1-20 (0 = 10)
 people, err = dir.Resolve(ctx, claims.Subject, []string{"alice@example.com"}) // 1-100 addresses
+groups, err := dir.Groups(ctx) // suite groups for this app: poll every 60 s and reconcile
 if errors.Is(err, suitedir.ErrNoPeer) { /* not paired: use explicit config */ }
 ```
 
@@ -201,3 +202,9 @@ and any other status is neither (`TestStatusErrors`); bodies are read to 1 MiB
 (`TestOversizeBodyIsRefused`). `People` and `Resolve` require a `sub`, drop people
 without a sub or email, send no request for an empty address list, and follow the same
 redirect, size and status rules; their errors carry no query (`TestPeople*`, `TestResolve`).
+`Groups` reads to 8 MiB and drops entries with no ID, a repeated ID, a blank name, a slug
+that is not lowercase ASCII words joined by single hyphens, an unknown state, or an active
+group whose members are missing or contain an empty subject; archived groups always
+come back with no members (`TestGroups*`). Because entries can be dropped, an app archives
+a resource only on an explicit `GroupArchived`, never because its group is absent. The
+reconcile contract is KyIdentity-server `docs/SUITE-DIRECTORY.md`, Suite groups.
