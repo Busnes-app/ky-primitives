@@ -286,3 +286,45 @@ func TestPeopleRedirectRefusedAndErrorCarriesNoQuery(t *testing.T) {
 		t.Fatalf("insecure issuer: err = %v", err)
 	}
 }
+
+func TestGroupsValidatesEntries(t *testing.T) {
+	c, lastReq := serve(t, 200, `{"groups":[
+		{"id":"g1","name":"Sales","slug":"sales","state":"active","members":["u1","u2"]},
+		{"id":"g2","name":"Old","slug":"old","state":"archived","members":["leaked"]},
+		{"id":"g1","name":"Dup","slug":"dup","state":"active","members":[]},
+		{"id":"","name":"NoID","slug":"x","state":"active","members":[]},
+		{"id":"g3","name":"","slug":"x","state":"active","members":[]},
+		{"id":"g4","name":"Bad slug","slug":"Bad Slug","state":"active","members":[]},
+		{"id":"g5","name":"Odd","slug":"odd","state":"deleted","members":[]},
+		{"id":"g6","name":"No members","slug":"nm","state":"active"},
+		{"id":"g7","name":"Empty sub","slug":"es","state":"active","members":[""]}]}`)
+	groups, err := c.Groups(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 || groups[0].ID != "g1" || len(groups[0].Members) != 2 ||
+		groups[1].ID != "g2" || groups[1].State != GroupArchived || len(groups[1].Members) != 0 {
+		t.Fatalf("groups = %+v", groups)
+	}
+	if req := lastReq(); req.URL.Path != "/api/suite/groups" || req.URL.RawQuery != "" {
+		t.Fatalf("request = %s", req.URL)
+	}
+}
+
+func TestGroupsErrors(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		body   string
+		want   error
+	}{{401, `{"error":"invalid_client"}`, ErrUnauthorized}, {200, `{}`, nil}, {500, `{}`, nil}} {
+		client, _ := serve(t, c.status, c.body)
+		groups, err := client.Groups(context.Background())
+		if err == nil || groups != nil || c.want != nil && !errors.Is(err, c.want) {
+			t.Fatalf("%d %s: %v %v", c.status, c.body, groups, err)
+		}
+	}
+	big, _ := serve(t, 200, `{"groups":[`+strings.Repeat(" ", maxGroupsBody)+`]}`)
+	if _, err := big.Groups(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversize: %v", err)
+	}
+}

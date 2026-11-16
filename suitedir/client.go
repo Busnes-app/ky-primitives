@@ -1,5 +1,5 @@
 // Package suitedir is the client for KyIdentity's suite directory: which suite apps a user
-// may open, the organisation's people for a picker, and the URL and shared syncauth secret of a paired app. Server to server, with
+// may open, the organisation's people for a picker, its suite groups, and the URL and shared syncauth secret of a paired app. Server to server, with
 // the calling app's own OAuth client credentials (client_secret_basic). Contract:
 // KyIdentity-server docs/SUITE-DIRECTORY.md.
 package suitedir
@@ -21,6 +21,9 @@ import (
 
 // maxBody bounds every response read. An app list is a few kilobytes.
 const maxBody = 1 << 20
+
+// maxGroupsBody bounds the group list: at most 200 groups with their member subjects.
+const maxGroupsBody = 8 << 20
 
 var (
 	// ErrUnauthorized is a 401: KyIdentity refused the client credentials.
@@ -129,6 +132,77 @@ func (c *Client) people(ctx context.Context, v url.Values) ([]Person, error) {
 	return people, nil
 }
 
+// Group is a suite group (KyIdentity docs/SUITE-DIRECTORY.md). Match resources on ID
+// only. State is GroupActive, with Members the subjects to grant the ordinary member
+// role, or GroupArchived: make the resource read-only with no members, and keep it.
+type Group struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Slug    string   `json:"slug"`
+	State   string   `json:"state"`
+	Members []string `json:"members"`
+}
+
+const (
+	GroupActive   = "active"
+	GroupArchived = "archived"
+)
+
+// Groups lists the suite groups for the calling app. Malformed entries are dropped, so
+// an app must archive only on an explicit GroupArchived, never on absence.
+func (c *Client) Groups(ctx context.Context) ([]Group, error) {
+	var body struct {
+		Groups []Group `json:"groups"`
+	}
+	if err := c.fetch(ctx, "groups", url.Values{}, maxGroupsBody, &body); err != nil {
+		return nil, err
+	}
+	if body.Groups == nil {
+		return nil, errors.New("suitedir: groups: response has no groups list")
+	}
+	groups := body.Groups[:0]
+	seen := map[string]bool{}
+	for _, g := range body.Groups {
+		if g.ID == "" || seen[g.ID] || strings.TrimSpace(g.Name) == "" || !validSlug(g.Slug) {
+			continue
+		}
+		switch {
+		case g.State == GroupArchived:
+			g.Members = []string{}
+		case g.State == GroupActive && validMembers(g.Members):
+		default:
+			continue
+		}
+		seen[g.ID] = true
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func validSlug(s string) bool {
+	if s == "" || len(s) > 64 || s[0] == '-' || s[len(s)-1] == '-' || strings.Contains(s, "--") {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func validMembers(subs []string) bool {
+	if subs == nil {
+		return false
+	}
+	for _, s := range subs {
+		if s == "" {
+			return false
+		}
+	}
+	return true
+}
+
 // Peer fetches the connection details for the paired app client.
 func (c *Client) Peer(ctx context.Context, client string) (Peer, error) {
 	if client == "" {
@@ -156,6 +230,10 @@ func (c *Client) Peer(ctx context.Context, client string) (Peer, error) {
 }
 
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
+	return c.fetch(ctx, path, q, maxBody, out)
+}
+
+func (c *Client) fetch(ctx context.Context, path string, q url.Values, limit int, out any) error {
 	base, err := url.Parse(strings.TrimRight(c.Issuer, "/"))
 	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" ||
 		base.Scheme != "https" && !(base.Scheme == "http" && isLoopback(base.Hostname())) {
@@ -188,12 +266,12 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 		return fmt.Errorf("suitedir: %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 	if err != nil {
 		return fmt.Errorf("suitedir: %s: %w", path, err)
 	}
-	if len(raw) > maxBody {
-		return fmt.Errorf("suitedir: %s: body exceeds %d bytes", path, maxBody)
+	if len(raw) > limit {
+		return fmt.Errorf("suitedir: %s: body exceeds %d bytes", path, limit)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:

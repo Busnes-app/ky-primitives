@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `suitedir.Groups` calls KyIdentity's `GET /api/suite/groups`: the suite
+  groups for the calling app, `Group{ID, Name, Slug, State, Members}` with `GroupActive`
+  or `GroupArchived`. Same transport rules as `Apps`; bodies to 8 MiB. Needs a KyIdentity
+  that serves the route; an older one answers 404, returned as an ordinary status error.
+
 - Root (minor): `suitedir.People` (search by name, username or email prefix) and
   `suitedir.Resolve` (exact addresses) call KyIdentity's `GET /api/suite/people` with the
   same transport rules as `Apps`. New type `Person{Sub, Name, Email}`. Needs a KyIdentity
