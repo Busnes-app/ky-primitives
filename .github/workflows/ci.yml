@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -24,7 +25,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         go: ['1.26.x', 'stable']
+    if: github.event.pull_request.draft != true
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -63,7 +66,9 @@ jobs:
   vulncheck:
     # nodeps_test.go pins which dependencies are allowed. It says nothing about which
     # versions, and x/crypto is where a password-hashing CVE would land.
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -76,7 +81,9 @@ jobs:
 
   reuse:
     # Every file names its license and copyright (REUSE.toml, LICENSES/).
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/check-no-binaries.sh
