@@ -13,8 +13,6 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
-- Offsite: refresh compatible AWS/SMB support dependencies and x/crypto, retaining the current module streams. Consumers rebuild; no capsule, credential or stored-data migration is required.
-
 - Root (minor): `suitedir.Groups` calls KyIdentity's `GET /api/suite/groups`: the suite
   groups for the calling app, `Group{ID, Name, Slug, State, Members}` with `GroupActive`
   or `GroupArchived`. Same transport rules as `Apps`; bodies to 8 MiB. Needs a KyIdentity
@@ -86,15 +84,6 @@ Keep unpublished changes separate from tagged releases.
 - Root: `capsule.Seal` refuses a file path that is not valid UTF-8; such a capsule
   sealed fine and then failed every `Open`. `password.Verify` refuses a stored hash longer than
   3 KiB before splitting or quoting it.
-- Offsite: an SFTP `Secret` that contains `-----BEGIN ` is always treated as a private
-  key, so a key pasted without its END line fails to parse instead of being sent to the
-  server as a password.
-- Offsite: an unset `Config.Timeout` means five minutes without progress and 24 hours at
-  most, instead of five minutes for the whole transfer, so large objects on slow links
-  complete. SFTP and SMB move at most 1 MiB per read so progress stays visible, and an
-  expired budget reports `context.DeadlineExceeded`. An explicit `Timeout` keeps its
-  meaning.
-
 - Root: `oidcverify` runs the shared JWKS fetch detached from the request that
   triggered it, so a client that hangs up can no longer make every verification
   fail with `ErrUnknownKey` for `MinRefresh`. Every caller waiting on the fetch,
@@ -105,9 +94,6 @@ Keep unpublished changes separate from tagged releases.
   own that a racing run wrote, so two runs with `keep=1` can no longer delete each
   other's copies and leave none. The KyRecovery client tries
   every allowed address instead of only the first.
-- Offsite: SFTP and SMB `Test` stage and rename like `Put`, so a server that cannot
-  publish fails the test. Empty S3 uploads send `Content-Length: 0` instead of a
-  chunked body.
 - Root: new `suitedir` package, the client for KyIdentity's suite directory
   (`/api/suite/apps`, `/api/suite/peer`). Additive; no migration.
 - Root: `recoveryclient.RepinRecoveryKey` moves a product to a new recovery key after
@@ -126,18 +112,9 @@ Keep unpublished changes separate from tagged releases.
   including zero, instead of conditioning the leading coefficient to be nonzero.
   This restores the intended share distribution without changing `ky2` encoding
   or the ability to combine existing shares. [Source change](https://github.com/Busnes-app/ky-primitives/commit/ad09877).
-- Offsite: S3 requests use the AWS SDK SigV4 signer rather than the local signer.
-  The SDK's own path escaping is off, so object paths are signed exactly as the local
-  signer signed them, characters such as `+`, `=` and `:` included. The target API is unchanged; operators
-  should verify their S3-compatible endpoint during adoption.
-  [Source change](https://github.com/Busnes-app/ky-primitives/commit/f39c65a).
 - Root: `totp.Code` and `totp.Validate` refuse decoded secrets below 16 bytes
   (RFC 4226's minimum). Generated secrets are unchanged at 20 bytes. Callers must
   keep weak legacy records and have users re-enrol rather than rewrite them.
-- Offsite: SFTP refuses SHA-1 key exchange and signatures, DSA, HMAC-SHA1-96 and
-  RSA keys below 2048 bits, with no legacy fallback; a matching host pin does not
-  waive key strength. Replace weak server/client keys or old SSH servers before
-  adopting, then re-verify and re-pin the host fingerprint.
 - Contributor/security documentation, pinned CI actions and live assurance badges
   were added. These changes do not publish a new module version.
 
@@ -307,6 +284,48 @@ than adopt the old examples or assume later versions read every earlier format.
 
 The versions below apply to `github.com/Busnes-app/ky-primitives/offsite` only.
 Updating the root module does not select a new offsite version automatically.
+
+### [offsite/v0.3.0 — 2026-11-17](https://github.com/Busnes-app/ky-primitives/tree/offsite/v0.3.0)
+
+Based on offsite/v0.2.2. This version adds the optional `Config.Timeout` setting,
+ships the offsite behavior changes below, and refreshes the AWS SDK/Smithy,
+cloudsoda/go-smb2, Kerberos support and x/crypto dependencies. The root module's
+unreleased additions remain on its separate version stream.
+
+- Offsite: refresh compatible AWS/SMB support dependencies and x/crypto, retaining the current module streams. Consumers rebuild; no capsule, credential or stored-data migration is required.
+
+- Offsite: an SFTP `Secret` that contains `-----BEGIN ` is always treated as a private
+  key, so a key pasted without its END line fails to parse instead of being sent to the
+  server as a password.
+- Offsite: an unset `Config.Timeout` means five minutes without progress and 24 hours at
+  most, instead of five minutes for the whole transfer, so large objects on slow links
+  complete. SFTP and SMB move at most 1 MiB per read so progress stays visible, and an
+  expired budget reports `context.DeadlineExceeded`. An explicit `Timeout` keeps its
+  meaning.
+
+- Offsite: SFTP and SMB `Test` stage and rename like `Put`, so a server that cannot
+  publish fails the test. Empty S3 uploads send `Content-Length: 0` instead of a
+  chunked body.
+- Offsite: S3 requests use the AWS SDK SigV4 signer rather than the local signer.
+  The SDK's own path escaping is off, so object paths are signed exactly as the local
+  signer signed them, characters such as `+`, `=` and `:` included. The target API is unchanged; operators
+  should verify their S3-compatible endpoint during adoption.
+  [Source change](https://github.com/Busnes-app/ky-primitives/commit/f39c65a).
+- Offsite: SFTP refuses SHA-1 key exchange and signatures, DSA, HMAC-SHA1-96 and
+  RSA keys below 2048 bits, with no legacy fallback; a matching host pin does not
+  waive key strength. Replace weak server/client keys or old SSH servers before
+  adopting, then re-verify and re-pin the host fingerprint.
+
+Upgrade impact: update the nested module explicitly and rebuild consumers. Existing
+objects, recovery containers and retained credentials keep their formats. Before
+upgrading an SFTP destination, replace keys below 2048-bit RSA or peers limited to
+retired algorithms, then verify its fingerprint; a matching pin does not waive the
+policy. Validate S3-compatible endpoints with the SDK signer and exercise write/rename
+permissions on SFTP/SMB. An unset timeout now uses the documented idle/total budget;
+set `Config.Timeout` explicitly when a fixed whole-transfer limit is required.
+SMB remains outside the strong-cryptography profile. This is not a claim that a
+specific vulnerability was fixed: govulncheck reports no reachable vulnerabilities;
+the existing GO-2026-5932 exception concerns unused deprecated dependency code.
 
 ### [offsite/v0.2.2 — 2026-10-23](https://github.com/Busnes-app/ky-primitives/tree/offsite/v0.2.2)
 
