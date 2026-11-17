@@ -287,10 +287,11 @@ Updating the root module does not select a new offsite version automatically.
 
 ### [offsite/v0.3.0 — 2026-11-17](https://github.com/Busnes-app/ky-primitives/tree/offsite/v0.3.0)
 
-Based on offsite/v0.2.2. This version adds the optional `Config.Timeout` setting,
-ships the offsite behavior changes below, and refreshes the AWS SDK/Smithy,
-cloudsoda/go-smb2, Kerberos support and x/crypto dependencies. The root module's
-unreleased additions remain on its separate version stream.
+Based on offsite/v0.2.2. This version changes the default for an unset
+`Config.Timeout` from a fixed five-minute whole-transfer limit to the idle/total
+budget described below, and refreshes the AWS SDK/Smithy, cloudsoda/go-smb2,
+Kerberos support and x/crypto dependencies. The root module's unreleased additions
+remain on its separate version stream.
 
 - Offsite: refresh compatible AWS/SMB support dependencies and x/crypto, retaining the current module streams. Consumers rebuild; no capsule, credential or stored-data migration is required.
 
