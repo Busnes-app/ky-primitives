@@ -13,6 +13,8 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Offsite: refresh compatible AWS/SMB support dependencies and x/crypto, retaining the current module streams. Consumers rebuild; no capsule, credential or stored-data migration is required.
+
 - Root (minor): `suitedir.Groups` calls KyIdentity's `GET /api/suite/groups`: the suite
   groups for the calling app, `Group{ID, Name, Slug, State, Members}` with `GroupActive`
   or `GroupArchived`. Same transport rules as `Apps`; bodies to 8 MiB. Needs a KyIdentity
