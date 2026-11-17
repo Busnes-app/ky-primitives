@@ -22,6 +22,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 - `netallow` matches only an address the caller already resolved through its
   trusted-proxy handling; it never reads a forwarding header. Keep the /16 and /48
   breadth floors and the loopback refusal.
+- Dependency-only changes count as releases in the module they affect. Choose the
+  version against that module's last tag, include its release notes, and report the
+  published tag before describing the update as released.
 - Before a root or offsite module tag, update `CHANGELOG.md` with the released
   changes, upgrade/format impact, migration steps and known vulnerability IDs.
   Keep the two version streams and unpublished source changes separate.
