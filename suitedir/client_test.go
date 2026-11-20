@@ -328,3 +328,126 @@ func TestGroupsErrors(t *testing.T) {
 		t.Fatalf("oversize: %v", err)
 	}
 }
+
+// orgPages serves /api/suite/orgs from pages keyed by the request's query.
+func orgPages(t *testing.T, pages map[string]string) (*Client, *[]string) {
+	t.Helper()
+	var mu sync.Mutex
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		queries = append(queries, r.URL.RawQuery)
+		mu.Unlock()
+		body, ok := pages[r.URL.RawQuery]
+		if r.URL.Path != "/api/suite/orgs" || !ok {
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(`{"error":"not_found"}`))
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return &Client{Issuer: srv.URL, ClientID: "kypost", ClientSecret: "s"}, &queries
+}
+
+func TestOrgsFollowsPagesFromSince(t *testing.T) {
+	c, queries := orgPages(t, map[string]string{
+		"limit=500&since=4":    `{"orgs":[{"id":"a","status":"active","revision":5,"enabled":true,"quotas":{"storage_gb":5}}],"next":"5.a"}`,
+		"cursor=5.a&limit=500": `{"orgs":[{"id":"b","status":"deleted","revision":7,"enabled":false,"quotas":{}}],"next":"7.b"}`,
+		"cursor=7.b&limit=500": `{"orgs":[]}`,
+	})
+	orgs, next, err := c.Orgs(context.Background(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != 7 || len(orgs) != 2 || orgs[0].ID != "a" || !orgs[0].Enabled || string(orgs[0].Quotas) != `{"storage_gb":5}` || orgs[1].Status != OrgDeleted {
+		t.Fatalf("orgs %+v next %d", orgs, next)
+	}
+	if len(*queries) != 3 {
+		t.Fatalf("queries %q", *queries)
+	}
+}
+
+func TestOrgsNothingChangedKeepsSince(t *testing.T) {
+	c, _ := orgPages(t, map[string]string{"limit=500&since=9": `{"orgs":[]}`})
+	orgs, next, err := c.Orgs(context.Background(), 9)
+	if err != nil || len(orgs) != 0 || next != 9 {
+		t.Fatalf("orgs %v next %d err %v", orgs, next, err)
+	}
+}
+
+// A malformed entry fails the call, so the app never moves past an org it did not apply.
+func TestOrgsRefusesMalformedEntries(t *testing.T) {
+	for _, entry := range []string{
+		`{"id":"","status":"active","revision":5,"quotas":{}}`,
+		`{"id":"a","status":"paused","revision":5,"quotas":{}}`,
+		`{"id":"a","status":"active","revision":1,"quotas":{}}`,
+		`{"id":"a","status":"active","revision":5,"quotas":[]}`,
+		`{"id":"a","status":"active","revision":5}`,
+	} {
+		c, _ := orgPages(t, map[string]string{"limit=500&since=1": `{"orgs":[` + entry + `]}`})
+		if orgs, next, err := c.Orgs(context.Background(), 1); err == nil || orgs != nil || next != 1 {
+			t.Errorf("%s: orgs %v next %d err %v", entry, orgs, next, err)
+		}
+	}
+	c, _ := orgPages(t, map[string]string{"limit=500&since=0": `{"orgs":[
+		{"id":"a","status":"active","revision":6,"quotas":{}},{"id":"b","status":"active","revision":5,"quotas":{}}]}`})
+	if _, _, err := c.Orgs(context.Background(), 0); err == nil {
+		t.Error("revisions out of order accepted")
+	}
+	c, queries := orgPages(t, map[string]string{"limit=500&since=0": `{}`, "limit=500&since=-1": `{"orgs":[]}`})
+	if _, _, err := c.Orgs(context.Background(), 0); err == nil {
+		t.Error("a body without orgs accepted")
+	}
+	if _, _, err := c.Orgs(context.Background(), -1); err == nil || len(*queries) != 1 {
+		t.Errorf("negative since: err %v, queries %q", err, *queries)
+	}
+}
+
+// A single-tenant KyIdentity has no orgs route.
+func TestOrgsOnSingleTenantIsAnError(t *testing.T) {
+	c, _ := orgPages(t, map[string]string{})
+	if _, _, err := c.Orgs(context.Background(), 0); err == nil || !strings.Contains(err.Error(), "status 404") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// A server repeating its cursor cannot hold the client in a loop, and the call fails so
+// since does not move past orgs it never listed.
+func TestOrgsStopsOnARepeatedCursor(t *testing.T) {
+	c, queries := orgPages(t, map[string]string{
+		"limit=500&since=0":    `{"orgs":[{"id":"a","status":"active","revision":1,"quotas":{}}],"next":"1.a"}`,
+		"cursor=1.a&limit=500": `{"orgs":[{"id":"b","status":"active","revision":2,"quotas":{}}],"next":"1.a"}`,
+	})
+	orgs, next, err := c.Orgs(context.Background(), 0)
+	if err == nil || orgs != nil || next != 0 || len(*queries) != 2 {
+		t.Fatalf("orgs %v next %d err %v queries %q", orgs, next, err, *queries)
+	}
+}
+
+// Cut short at the page bound, Orgs resumes before the last revision, so an org sharing it
+// on the next page is not skipped.
+func TestOrgsCutShortResumesBeforeTheLastRevision(t *testing.T) {
+	defer func(n int) { maxOrgPages = n }(maxOrgPages)
+	maxOrgPages = 1
+	c, _ := orgPages(t, map[string]string{
+		"limit=500&since=0": `{"orgs":[{"id":"a","status":"active","revision":3,"quotas":{}},{"id":"b","status":"active","revision":4,"quotas":{}}],"next":"4.b"}`,
+	})
+	orgs, next, err := c.Orgs(context.Background(), 0)
+	if err != nil || len(orgs) != 2 || next != 3 {
+		t.Fatalf("orgs %v next %d err %v", orgs, next, err)
+	}
+}
+
+// When every page holds one revision there is nowhere safe to resume, so the call fails
+// rather than returning the same since forever.
+func TestOrgsCutShortWithinOneRevisionFails(t *testing.T) {
+	defer func(n int) { maxOrgPages = n }(maxOrgPages)
+	maxOrgPages = 1
+	c, _ := orgPages(t, map[string]string{
+		"limit=500&since=0": `{"orgs":[{"id":"a","status":"active","revision":1,"quotas":{}}],"next":"1.a"}`,
+	})
+	if orgs, next, err := c.Orgs(context.Background(), 0); err == nil || orgs != nil || next != 0 {
+		t.Fatalf("orgs %v next %d err %v", orgs, next, err)
+	}
+}

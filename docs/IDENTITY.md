@@ -186,6 +186,7 @@ peer, err := dir.Peer(ctx, "kypost")
 people, err := dir.People(ctx, claims.Subject, "ali", 10)   // picker: q 2-64 chars, limit 1-20 (0 = 10)
 people, err = dir.Resolve(ctx, claims.Subject, []string{"alice@example.com"}) // 1-100 addresses
 groups, err := dir.Groups(ctx) // suite groups for this app: poll every 60 s and reconcile
+orgs, since, err := dir.Orgs(ctx, since) // multi-tenant KyIdentity: orgs changed after since
 if errors.Is(err, suitedir.ErrNoPeer) { /* not paired: use explicit config */ }
 ```
 
@@ -208,3 +209,12 @@ group whose members are missing or contain an empty subject; archived groups alw
 come back with no members (`TestGroups*`). Because entries can be dropped, an app archives
 a resource only on an explicit `GroupArchived`, never because its group is absent. The
 reconcile contract is KyIdentity-server `docs/SUITE-DIRECTORY.md`, Suite groups.
+`Orgs` (multi-tenant KyIdentity only; a single-tenant one answers 404) lists the
+organisations that changed after `since`, following `next` cursors up to 100 pages of 500,
+each page read to 4 MiB, and returns the revision to pass next time (`since` when nothing
+changed; one less than the last revision when cut short at 100 pages, so orgs sharing it
+are listed again rather than skipped, and an error when one revision fills every page). Unlike `Groups` it never drops an entry: an empty ID, an unknown status, quotas that
+are not a JSON object, or a revision at or below `since` or lower than the one before fails
+the whole call, so an app never moves past an org it did not apply (`TestOrgs*`). A repeated
+cursor fails the call. Stop serving an org that is not `OrgActive`; drop its data only at
+`OrgDeleted`.

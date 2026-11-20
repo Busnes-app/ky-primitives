@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `suitedir.Orgs` calls a multi-tenant KyIdentity's `GET /api/suite/orgs`:
+  `Org{ID, Status, Revision, Enabled, Quotas}` changed after a revision, following pages,
+  with the revision to pass next time. Any malformed entry fails the call. A single-tenant
+  or older KyIdentity answers 404, returned as an ordinary status error.
+
 - Root (minor): `suitedir.Groups` calls KyIdentity's `GET /api/suite/groups`: the suite
   groups for the calling app, `Group{ID, Name, Slug, State, Members}` with `GroupActive`
   or `GroupArchived`. Same transport rules as `Apps`; bodies to 8 MiB. Needs a KyIdentity
