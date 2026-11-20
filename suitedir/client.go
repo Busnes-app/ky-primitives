@@ -236,8 +236,11 @@ func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 			last = o.Revision
 		}
 		orgs = append(orgs, body.Orgs...)
-		if body.Next == "" || len(body.Orgs) == 0 || body.Next == q.Get("cursor") {
+		if body.Next == "" || len(body.Orgs) == 0 {
 			return orgs, last, nil
+		}
+		if body.Next == q.Get("cursor") {
+			return nil, since, errors.New("suitedir: orgs: the cursor did not advance")
 		}
 		q = url.Values{"cursor": {body.Next}, "limit": {"500"}}
 	}

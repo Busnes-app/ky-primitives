@@ -216,5 +216,5 @@ changed; one less than the last revision when cut short at 100 pages, so orgs sh
 are listed again rather than skipped). Unlike `Groups` it never drops an entry: an empty ID, an unknown status, quotas that
 are not a JSON object, or a revision at or below `since` or lower than the one before fails
 the whole call, so an app never moves past an org it did not apply (`TestOrgs*`). A repeated
-cursor ends the call. Stop serving an org that is not `OrgActive`; drop its data only at
+cursor fails the call. Stop serving an org that is not `OrgActive`; drop its data only at
 `OrgDeleted`.

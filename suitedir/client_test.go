@@ -412,14 +412,15 @@ func TestOrgsOnSingleTenantIsAnError(t *testing.T) {
 	}
 }
 
-// A server repeating its cursor cannot hold the client in a loop.
+// A server repeating its cursor cannot hold the client in a loop, and the call fails so
+// since does not move past orgs it never listed.
 func TestOrgsStopsOnARepeatedCursor(t *testing.T) {
 	c, queries := orgPages(t, map[string]string{
 		"limit=500&since=0":    `{"orgs":[{"id":"a","status":"active","revision":1,"quotas":{}}],"next":"1.a"}`,
 		"cursor=1.a&limit=500": `{"orgs":[{"id":"b","status":"active","revision":2,"quotas":{}}],"next":"1.a"}`,
 	})
 	orgs, next, err := c.Orgs(context.Background(), 0)
-	if err != nil || len(orgs) != 2 || next != 2 || len(*queries) != 2 {
+	if err == nil || orgs != nil || next != 0 || len(*queries) != 2 {
 		t.Fatalf("orgs %v next %d err %v queries %q", orgs, next, err, *queries)
 	}
 }
