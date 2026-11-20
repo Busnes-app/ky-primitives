@@ -1,5 +1,5 @@
 // Package suitedir is the client for KyIdentity's suite directory: which suite apps a user
-// may open, the organisation's people for a picker, its suite groups, and the URL and shared syncauth secret of a paired app. Server to server, with
+// may open, the organisation's people for a picker, its suite groups, the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations. Server to server, with
 // the calling app's own OAuth client credentials (client_secret_basic). Contract:
 // KyIdentity-server docs/SUITE-DIRECTORY.md.
 package suitedir
@@ -177,6 +177,75 @@ func (c *Client) Groups(ctx context.Context) ([]Group, error) {
 		groups = append(groups, g)
 	}
 	return groups, nil
+}
+
+// Org is an organisation of a multi-tenant KyIdentity, as /api/suite/orgs lists it to the
+// calling app. Enabled and Quotas (an opaque JSON object) are that app's only. Stop serving
+// an org whose Status is not OrgActive; drop its data only at OrgDeleted.
+type Org struct {
+	ID       string          `json:"id"`
+	Status   string          `json:"status"`
+	Revision int64           `json:"revision"`
+	Enabled  bool            `json:"enabled"`
+	Quotas   json.RawMessage `json:"quotas"`
+}
+
+const (
+	OrgActive            = "active"
+	OrgSuspended         = "suspended"
+	OrgDeletionScheduled = "deletion_scheduled"
+	OrgDeleted           = "deleted"
+)
+
+// maxOrgsBody bounds one page: 500 orgs, each with quotas of at most 4 KiB.
+const maxOrgsBody = 4 << 20
+
+// maxOrgPages bounds one Orgs call; a longer backlog continues from the revision returned.
+const maxOrgPages = 100
+
+// Orgs lists the orgs that changed after revision since (0 for all), following pages, in
+// revision order. It returns the revision to pass next time: the last one listed, or since
+// when nothing changed. Any malformed entry fails the whole call, so an app never skips past
+// an org it did not apply. Multi-tenant installs only; a single-tenant one answers 404.
+func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
+	if since < 0 {
+		return nil, since, errors.New("suitedir: orgs: since is negative")
+	}
+	q := url.Values{"since": {strconv.FormatInt(since, 10)}, "limit": {"500"}}
+	orgs, last := []Org{}, since
+	for page := 0; page < maxOrgPages; page++ {
+		var body struct {
+			Orgs []Org  `json:"orgs"`
+			Next string `json:"next"`
+		}
+		if err := c.fetch(ctx, "orgs", q, maxOrgsBody, &body); err != nil {
+			return nil, since, err
+		}
+		if body.Orgs == nil {
+			return nil, since, errors.New("suitedir: orgs: response has no orgs list")
+		}
+		for _, o := range body.Orgs {
+			if o.ID == "" || o.Revision < last || o.Revision <= since || !validOrgStatus(o.Status) || !jsonObject(o.Quotas) {
+				return nil, since, fmt.Errorf("suitedir: orgs: malformed entry %q", o.ID)
+			}
+			last = o.Revision
+		}
+		orgs = append(orgs, body.Orgs...)
+		if body.Next == "" || len(body.Orgs) == 0 || body.Next == q.Get("cursor") {
+			break
+		}
+		q = url.Values{"cursor": {body.Next}, "limit": {"500"}}
+	}
+	return orgs, last, nil
+}
+
+func validOrgStatus(s string) bool {
+	return s == OrgActive || s == OrgSuspended || s == OrgDeletionScheduled || s == OrgDeleted
+}
+
+func jsonObject(raw json.RawMessage) bool {
+	var m map[string]json.RawMessage
+	return json.Unmarshal(raw, &m) == nil && m != nil
 }
 
 func validSlug(s string) bool {
