@@ -438,3 +438,16 @@ func TestOrgsCutShortResumesBeforeTheLastRevision(t *testing.T) {
 		t.Fatalf("orgs %v next %d err %v", orgs, next, err)
 	}
 }
+
+// When every page holds one revision there is nowhere safe to resume, so the call fails
+// rather than returning the same since forever.
+func TestOrgsCutShortWithinOneRevisionFails(t *testing.T) {
+	defer func(n int) { maxOrgPages = n }(maxOrgPages)
+	maxOrgPages = 1
+	c, _ := orgPages(t, map[string]string{
+		"limit=500&since=0": `{"orgs":[{"id":"a","status":"active","revision":1,"quotas":{}}],"next":"1.a"}`,
+	})
+	if orgs, next, err := c.Orgs(context.Background(), 0); err == nil || orgs != nil || next != 0 {
+		t.Fatalf("orgs %v next %d err %v", orgs, next, err)
+	}
+}

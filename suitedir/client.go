@@ -217,7 +217,10 @@ func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 	orgs, last := []Org{}, since
 	for page := 0; ; page++ {
 		if page == maxOrgPages {
-			return orgs, max(last-1, since), nil
+			if last-1 <= since {
+				return nil, since, errors.New("suitedir: orgs: one revision fills every page; no safe place to resume")
+			}
+			return orgs, last - 1, nil
 		}
 		var body struct {
 			Orgs []Org  `json:"orgs"`
