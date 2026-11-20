@@ -423,3 +423,17 @@ func TestOrgsStopsOnARepeatedCursor(t *testing.T) {
 		t.Fatalf("orgs %v next %d err %v queries %q", orgs, next, err, *queries)
 	}
 }
+
+// Cut short at the page bound, Orgs resumes before the last revision, so an org sharing it
+// on the next page is not skipped.
+func TestOrgsCutShortResumesBeforeTheLastRevision(t *testing.T) {
+	defer func(n int) { maxOrgPages = n }(maxOrgPages)
+	maxOrgPages = 1
+	c, _ := orgPages(t, map[string]string{
+		"limit=500&since=0": `{"orgs":[{"id":"a","status":"active","revision":3,"quotas":{}},{"id":"b","status":"active","revision":4,"quotas":{}}],"next":"4.b"}`,
+	})
+	orgs, next, err := c.Orgs(context.Background(), 0)
+	if err != nil || len(orgs) != 2 || next != 3 {
+		t.Fatalf("orgs %v next %d err %v", orgs, next, err)
+	}
+}

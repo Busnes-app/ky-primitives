@@ -212,7 +212,8 @@ reconcile contract is KyIdentity-server `docs/SUITE-DIRECTORY.md`, Suite groups.
 `Orgs` (multi-tenant KyIdentity only; a single-tenant one answers 404) lists the
 organisations that changed after `since`, following `next` cursors up to 100 pages of 500,
 each page read to 4 MiB, and returns the revision to pass next time (`since` when nothing
-changed). Unlike `Groups` it never drops an entry: an empty ID, an unknown status, quotas that
+changed; one less than the last revision when cut short at 100 pages, so orgs sharing it
+are listed again rather than skipped). Unlike `Groups` it never drops an entry: an empty ID, an unknown status, quotas that
 are not a JSON object, or a revision at or below `since` or lower than the one before fails
 the whole call, so an app never moves past an org it did not apply (`TestOrgs*`). A repeated
 cursor ends the call. Stop serving an org that is not `OrgActive`; drop its data only at

@@ -201,11 +201,13 @@ const (
 const maxOrgsBody = 4 << 20
 
 // maxOrgPages bounds one Orgs call; a longer backlog continues from the revision returned.
-const maxOrgPages = 100
+var maxOrgPages = 100
 
 // Orgs lists the orgs that changed after revision since (0 for all), following pages, in
 // revision order. It returns the revision to pass next time: the last one listed, or since
-// when nothing changed. Any malformed entry fails the whole call, so an app never skips past
+// when nothing changed. A call cut short at its page bound returns one less than the last
+// revision, so orgs sharing that revision on a later page are not skipped; the next call
+// lists the ones already seen again, which an app applies as the same state. Any malformed entry fails the whole call, so an app never skips past
 // an org it did not apply. Multi-tenant installs only; a single-tenant one answers 404.
 func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 	if since < 0 {
@@ -213,7 +215,10 @@ func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 	}
 	q := url.Values{"since": {strconv.FormatInt(since, 10)}, "limit": {"500"}}
 	orgs, last := []Org{}, since
-	for page := 0; page < maxOrgPages; page++ {
+	for page := 0; ; page++ {
+		if page == maxOrgPages {
+			return orgs, max(last-1, since), nil
+		}
 		var body struct {
 			Orgs []Org  `json:"orgs"`
 			Next string `json:"next"`
@@ -232,11 +237,10 @@ func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 		}
 		orgs = append(orgs, body.Orgs...)
 		if body.Next == "" || len(body.Orgs) == 0 || body.Next == q.Get("cursor") {
-			break
+			return orgs, last, nil
 		}
 		q = url.Values{"cursor": {body.Next}, "limit": {"500"}}
 	}
-	return orgs, last, nil
 }
 
 func validOrgStatus(s string) bool {
