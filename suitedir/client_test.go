@@ -329,6 +329,31 @@ func TestGroupsErrors(t *testing.T) {
 	}
 }
 
+func TestOrgGroupsSendsTheOrg(t *testing.T) {
+	c, lastReq := serve(t, 200, `{"groups":[{"id":"g1","name":"Sales","slug":"sales","state":"active","members":["u1"]},{"id":"g2","name":"","slug":"x","state":"active","members":[]}]}`)
+	groups, err := c.OrgGroups(context.Background(), "org a")
+	if err != nil || len(groups) != 1 || groups[0].ID != "g1" {
+		t.Fatalf("groups = %+v, %v", groups, err)
+	}
+	if req := lastReq(); req.URL.Path != "/api/suite/groups" || req.URL.RawQuery != "org_id=org+a" {
+		t.Fatalf("request = %s", req.URL)
+	}
+	unknown, _ := serve(t, 404, `{"error":"unknown_org"}`)
+	if groups, err := unknown.OrgGroups(context.Background(), "org-x"); err == nil || groups != nil {
+		t.Fatalf("unknown org: %v %v", groups, err)
+	}
+}
+
+func TestOrgGroupsWithoutOrgSendsNothing(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(srv.Close)
+	c := &Client{Issuer: srv.URL, ClientID: "kydrive", ClientSecret: "s"}
+	if _, err := c.OrgGroups(context.Background(), ""); err == nil || hits.Load() != 0 {
+		t.Fatalf("err %v, requests %d", err, hits.Load())
+	}
+}
+
 // orgPages serves /api/suite/orgs from pages keyed by the request's query.
 func orgPages(t *testing.T, pages map[string]string) (*Client, *[]string) {
 	t.Helper()
