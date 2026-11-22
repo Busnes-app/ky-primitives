@@ -1,5 +1,5 @@
 // Package suitedir is the client for KyIdentity's suite directory: which suite apps a user
-// may open, the organisation's people for a picker, its suite groups, the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations. Server to server, with
+// may open, the organisation's people for a picker, its suite groups (per org on a multi-tenant KyIdentity), the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations. Server to server, with
 // the calling app's own OAuth client credentials (client_secret_basic). Contract:
 // KyIdentity-server docs/SUITE-DIRECTORY.md.
 package suitedir
@@ -151,10 +151,23 @@ const (
 // Groups lists the suite groups for the calling app. Malformed entries are dropped, so
 // an app must archive only on an explicit GroupArchived, never on absence.
 func (c *Client) Groups(ctx context.Context) ([]Group, error) {
+	return c.groups(ctx, url.Values{})
+}
+
+// OrgGroups lists org's suite groups on a multi-tenant KyIdentity, as Groups does. An org
+// not listed by Orgs is an error (404 unknown_org).
+func (c *Client) OrgGroups(ctx context.Context, org string) ([]Group, error) {
+	if org == "" {
+		return nil, errors.New("suitedir: groups: org is required")
+	}
+	return c.groups(ctx, url.Values{"org_id": {org}})
+}
+
+func (c *Client) groups(ctx context.Context, q url.Values) ([]Group, error) {
 	var body struct {
 		Groups []Group `json:"groups"`
 	}
-	if err := c.fetch(ctx, "groups", url.Values{}, maxGroupsBody, &body); err != nil {
+	if err := c.fetch(ctx, "groups", q, maxGroupsBody, &body); err != nil {
 		return nil, err
 	}
 	if body.Groups == nil {

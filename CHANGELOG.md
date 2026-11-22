@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `suitedir.OrgGroups(ctx, org)` lists one organisation's suite groups on a
+  multi-tenant KyIdentity (`GET /api/suite/groups?org_id=`), validated as `Groups`. An empty
+  org is refused without a request; an org KyIdentity does not list answers 404, returned as
+  an ordinary status error. `Groups` is unchanged.
+
 - Root (minor): `suitedir.Orgs` calls a multi-tenant KyIdentity's `GET /api/suite/orgs`:
   `Org{ID, Status, Revision, Enabled, Quotas}` changed after a revision, following pages,
   with the revision to pass next time. Any malformed entry fails the call. A single-tenant
