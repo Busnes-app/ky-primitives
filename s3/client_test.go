@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -358,5 +361,38 @@ func TestTransportAndStreamErrorsHideSecrets(t *testing.T) {
 	}
 	if err = body.Close(); !errors.Is(err, ErrFailure) || strings.Contains(err.Error(), testSecret) {
 		t.Fatal("close error leaked", err)
+	}
+}
+
+// Content-Encoding is object metadata, not permission to transform sealed stored bytes.
+func TestGetPreservesGzipObjectBytes(t *testing.T) {
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	if _, err := io.WriteString(zw, "stored object bytes"); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Length", strconv.Itoa(compressed.Len()))
+		w.Header().Set("X-Amz-Version-Id", "opaque-version")
+		if r.Method != "HEAD" {
+			_, _ = w.Write(compressed.Bytes())
+		}
+	})
+	head, err := c.Head(context.Background(), "key", "opaque-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, obj, err := c.Get(context.Background(), "key", "opaque-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	raw, err := io.ReadAll(body)
+	if err != nil || !bytes.Equal(raw, compressed.Bytes()) || obj != head || obj.Size != int64(compressed.Len()) {
+		t.Fatal("GET changed stored bytes or metadata", obj, head, err)
 	}
 }

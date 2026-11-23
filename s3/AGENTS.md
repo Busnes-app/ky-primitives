@@ -12,7 +12,7 @@ writer fences and provider replica/retention policy. `docs/S3.md` is the public 
 
 - Preserve opaque keys/version IDs and both version-list markers; URL-decode only keys
   when the response declares URL encoding. Validate a whole page before returning it.
-- PUT streams a declared length over verified HTTPS, without spooling or replay. Read
+- PUT streams a declared length over verified HTTPS, without spooling or replay. GET explicitly requests identity encoding to preserve stored gzip bytes and sizes. Read
   streams sanitize errors. Signed requests follow no redirect, even with a supplied client.
 - Errors contain locally selected operation/status data; credentials, provider messages,
   headers, URLs, keys and underlying transport errors stay out of error strings.

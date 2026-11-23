@@ -138,6 +138,8 @@ func (c *Client) Get(ctx context.Context, key, versionID string) (io.ReadCloser,
 	if err != nil {
 		return nil, Object{}, err
 	}
+	// Content-Encoding belongs to the stored object; never let net/http decompress it.
+	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := c.do(req, true, true)
 	if err != nil {
 		return nil, Object{}, err
