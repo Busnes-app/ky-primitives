@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `s3` adds shared streaming HTTPS PUT/GET/HEAD/DELETE, paginated object and
+  version/marker listings and resumable exact-key/namespace erasure. Standard library only;
+  no root or offsite dependency change. Products retain sealing/cache/quota and provider
+  replica/retention policy. Additive API, no migration, no automatic pruning; see `docs/S3.md`.
+
 - Root (minor): `suitedir.Client.Erased` reads a multi-tenant KyIdentity’s erased-subject
   feed in bounded pages. It returns the last validated revision and preserves the original
   checkpoint on error. Additive API, with no migration required.
