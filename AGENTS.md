@@ -38,6 +38,8 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   boundary: invalid apps and people without a sub or email are dropped, a peer needs an HTTPS URL and a 32-byte secret;
   malformed suite groups are dropped and archived ones carry no members, so apps archive only on an explicit state.
   `Orgs` instead fails the call on any malformed org, so an app's `since` never passes an org it did not apply.
+  A regioned peer (`Peer.Regions`) is reached only through `URLFor(org's HomeRegion)`, never its `URL`; a malformed
+  or empty `regions` fails `Peer`, so a dropped entry cannot turn a regioned peer into a one-URL one.
   HTTPS issuer (loopback http for tests), no redirects, bounded body; no caching.
 - REUSE: `REUSE.toml` names every file's license and copyright; `LICENSES/` holds the
   texts. Copied third-party files (e.g. `recoverykey/testdata/xwing-vector.json`) keep

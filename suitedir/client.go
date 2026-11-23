@@ -51,11 +51,24 @@ type App struct {
 	URL  string `json:"url"`
 }
 
-// Peer is a paired suite app. Secret is the pair's 32-byte syncauth key.
+// Peer is a paired suite app. Secret is the pair's 32-byte syncauth key. Regions, from a
+// multi-tenant KyIdentity, maps home regions to the origin serving each; use URLFor.
 type Peer struct {
-	Client string
-	URL    string
-	Secret []byte
+	Client  string
+	URL     string
+	Secret  []byte
+	Regions map[string]string
+}
+
+// URLFor is where to reach the peer for an org homed in region (Org.HomeRegion). A peer
+// without Regions is its one URL; with Regions, only the region's own entry, and false when
+// it has none: never URL, which serves another region.
+func (p Peer) URLFor(region string) (string, bool) {
+	if p.Regions == nil {
+		return p.URL, true
+	}
+	u, ok := p.Regions[region]
+	return u, ok
 }
 
 // Apps lists the apps sub may open; an empty sub lists every launchable app. Entries without
@@ -194,13 +207,16 @@ func (c *Client) groups(ctx context.Context, q url.Values) ([]Group, error) {
 
 // Org is an organisation of a multi-tenant KyIdentity, as /api/suite/orgs lists it to the
 // calling app. Enabled and Quotas (an opaque JSON object) are that app's only. Stop serving
-// an org whose Status is not OrgActive; drop its data only at OrgDeleted.
+// an org whose Status is not OrgActive; drop its data only at OrgDeleted. HomeRegion is the
+// region every multi-region app keeps the org in; it never changes. It is "" from a
+// KyIdentity older than home regions, which no regioned peer serves (Peer.URLFor).
 type Org struct {
-	ID       string          `json:"id"`
-	Status   string          `json:"status"`
-	Revision int64           `json:"revision"`
-	Enabled  bool            `json:"enabled"`
-	Quotas   json.RawMessage `json:"quotas"`
+	ID         string          `json:"id"`
+	Status     string          `json:"status"`
+	Revision   int64           `json:"revision"`
+	HomeRegion string          `json:"home_region"`
+	Enabled    bool            `json:"enabled"`
+	Quotas     json.RawMessage `json:"quotas"`
 }
 
 const (
@@ -246,7 +262,8 @@ func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 			return nil, since, errors.New("suitedir: orgs: response has no orgs list")
 		}
 		for _, o := range body.Orgs {
-			if o.ID == "" || o.Revision < last || o.Revision <= since || !validOrgStatus(o.Status) || !jsonObject(o.Quotas) {
+			if o.ID == "" || o.Revision < last || o.Revision <= since || !validOrgStatus(o.Status) || !jsonObject(o.Quotas) ||
+				o.HomeRegion != "" && !validRegion(o.HomeRegion) {
 				return nil, since, fmt.Errorf("suitedir: orgs: malformed entry %q", o.ID)
 			}
 			last = o.Revision
@@ -260,6 +277,19 @@ func (c *Client) Orgs(ctx context.Context, since int64) ([]Org, int64, error) {
 		}
 		q = url.Values{"cursor": {body.Next}, "limit": {"500"}}
 	}
+}
+
+// validRegion matches KyIdentity's home region slug, ^[a-z][a-z0-9-]{1,31}$.
+func validRegion(s string) bool {
+	if len(s) < 2 || len(s) > 32 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func validOrgStatus(s string) bool {
@@ -301,9 +331,10 @@ func (c *Client) Peer(ctx context.Context, client string) (Peer, error) {
 		return Peer{}, errors.New("suitedir: peer: client is required")
 	}
 	var body struct {
-		Client string `json:"client"`
-		URL    string `json:"url"`
-		Secret string `json:"secret"`
+		Client  string            `json:"client"`
+		URL     string            `json:"url"`
+		Secret  string            `json:"secret"`
+		Regions map[string]string `json:"regions"`
 	}
 	if err := c.get(ctx, "peer", url.Values{"client": {client}}, &body); err != nil {
 		return Peer{}, err
@@ -318,7 +349,17 @@ func (c *Client) Peer(ctx context.Context, client string) (Peer, error) {
 	if err != nil || len(secret) != 32 {
 		return Peer{}, errors.New("suitedir: peer: secret is not 32 base64 bytes")
 	}
-	return Peer{Client: body.Client, URL: body.URL, Secret: secret}, nil
+	// A bad entry fails the call: dropping it could leave Regions empty, and URLFor would
+	// then send every org to URL.
+	if body.Regions != nil && len(body.Regions) == 0 {
+		return Peer{}, errors.New("suitedir: peer: regions is empty")
+	}
+	for region, origin := range body.Regions {
+		if !validRegion(region) || !isHTTPS(origin) {
+			return Peer{}, fmt.Errorf("suitedir: peer: malformed region %q", region)
+		}
+	}
+	return Peer{Client: body.Client, URL: body.URL, Secret: secret, Regions: body.Regions}, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
