@@ -1,5 +1,5 @@
 // Package suitedir is the client for KyIdentity's suite directory: which suite apps a user
-// may open, the organisation's people for a picker, its suite groups (per org on a multi-tenant KyIdentity), the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations. Server to server, with
+// may open, the organisation's people for a picker, its suite groups (per org on a multi-tenant KyIdentity), the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations and erased subjects. Server to server, with
 // the calling app's own OAuth client credentials (client_secret_basic). Contract:
 // KyIdentity-server docs/SUITE-DIRECTORY.md.
 package suitedir

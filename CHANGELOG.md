@@ -13,6 +13,10 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `suitedir.Client.Erased` reads a multi-tenant KyIdentity’s erased-subject
+  feed in bounded pages. It returns the last validated revision and preserves the original
+  checkpoint on error. Additive API, with no migration required.
+
 - Root (minor): home regions for multi-region suite apps (KyIdentity tenancy design, "Home
   region"). `suitedir.Org.HomeRegion` (`home_region`, a slug matching
   `^[a-z][a-z0-9-]{1,31}$`, never changing; `""` from an older KyIdentity, and a malformed one

@@ -218,3 +218,15 @@ are not a JSON object, or a revision at or below `since` or lower than the one b
 the whole call, so an app never moves past an org it did not apply (`TestOrgs*`). A repeated
 cursor fails the call. Stop serving an org that is not `OrgActive`; drop its data only at
 `OrgDeleted`.
+
+`Erased(ctx, since)` reads erasure notices from a multi-tenant KyIdentity. Each
+`ErasedSubject` carries the subject, its organisation UUID and a unique revision. These
+notices survive account deletion. Use a separate checkpoint from `Orgs`. Apply all returned
+notices before saving the returned revision. An empty result keeps the checkpoint. After
+a restore, start both feeds at zero and call `Erased` with each returned revision until
+it returns an empty list.
+
+One call follows up to 100 pages of 500 notices, each limited to 1 MiB. The optional
+`next` string must match the page’s last revision and becomes the next request’s `since`.
+Any transport error, malformed page or out-of-order revision discards the entire call
+and returns the supplied checkpoint. A single-tenant KyIdentity answers 404.
