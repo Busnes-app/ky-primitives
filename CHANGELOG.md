@@ -13,6 +13,13 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): home regions for multi-region suite apps (KyIdentity tenancy design, "Home
+  region"). `suitedir.Org.HomeRegion` (`home_region`, a slug matching
+  `^[a-z][a-z0-9-]{1,31}$`, never changing; `""` from an older KyIdentity, and a malformed one
+  fails `Orgs`). `suitedir.Peer.Regions` maps regions to origins for a peer served per region,
+  and `Peer.URLFor(region)` picks the org's origin, or reports none: it never falls back to
+  `URL` for a regioned peer. A malformed or empty `regions` fails `Peer`. Additive.
+
 - Root (minor): `suitedir.OrgGroups(ctx, org)` lists one organisation's suite groups on a
   multi-tenant KyIdentity (`GET /api/suite/groups?org_id=`), validated as `Groups`. An empty
   org is refused without a request; an org KyIdentity does not list answers 404, returned as

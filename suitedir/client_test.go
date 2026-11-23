@@ -83,6 +83,30 @@ func TestPeer(t *testing.T) {
 	}
 }
 
+// A regioned peer is reached per org region, never at its URL for a region it lacks.
+func TestPeerRegions(t *testing.T) {
+	c, _ := serve(t, 200, `{"client":"kymessage","url":"https://us.chat.example.com","secret":"`+secret32+`",
+		"regions":{"us":"https://us.chat.example.com","eu-central":"https://eu.chat.example.com"}}`)
+	p, err := c.Peer(context.Background(), "kymessage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for region, want := range map[string]string{"eu-central": "https://eu.chat.example.com", "us": "https://us.chat.example.com", "local": "", "": ""} {
+		if got, ok := p.URLFor(region); got != want || ok != (want != "") {
+			t.Errorf("URLFor(%q) = %q %v", region, got, ok)
+		}
+	}
+	if got, ok := (Peer{URL: "https://mail.example.com"}).URLFor("eu"); got != "https://mail.example.com" || !ok {
+		t.Errorf("unregioned URLFor = %q %v", got, ok)
+	}
+	for _, regions := range []string{`{}`, `{"EU":"https://eu.example.com"}`, `{"eu":"http://eu.example.com"}`, `{"eu":""}`, `{"e":"https://eu.example.com"}`} {
+		c, _ := serve(t, 200, `{"client":"kymessage","url":"https://us.chat.example.com","secret":"`+secret32+`","regions":`+regions+`}`)
+		if p, err := c.Peer(context.Background(), "kymessage"); err == nil {
+			t.Errorf("regions %s accepted: %+v", regions, p)
+		}
+	}
+}
+
 func TestStatusErrors(t *testing.T) {
 	for _, tc := range []struct {
 		status int
@@ -377,7 +401,7 @@ func orgPages(t *testing.T, pages map[string]string) (*Client, *[]string) {
 
 func TestOrgsFollowsPagesFromSince(t *testing.T) {
 	c, queries := orgPages(t, map[string]string{
-		"limit=500&since=4":    `{"orgs":[{"id":"a","status":"active","revision":5,"enabled":true,"quotas":{"storage_gb":5}}],"next":"5.a"}`,
+		"limit=500&since=4":    `{"orgs":[{"id":"a","status":"active","revision":5,"home_region":"eu-central","enabled":true,"quotas":{"storage_gb":5}}],"next":"5.a"}`,
 		"cursor=5.a&limit=500": `{"orgs":[{"id":"b","status":"deleted","revision":7,"enabled":false,"quotas":{}}],"next":"7.b"}`,
 		"cursor=7.b&limit=500": `{"orgs":[]}`,
 	})
@@ -385,7 +409,7 @@ func TestOrgsFollowsPagesFromSince(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next != 7 || len(orgs) != 2 || orgs[0].ID != "a" || !orgs[0].Enabled || string(orgs[0].Quotas) != `{"storage_gb":5}` || orgs[1].Status != OrgDeleted {
+	if next != 7 || len(orgs) != 2 || orgs[0].ID != "a" || orgs[0].HomeRegion != "eu-central" || orgs[1].HomeRegion != "" || !orgs[0].Enabled || string(orgs[0].Quotas) != `{"storage_gb":5}` || orgs[1].Status != OrgDeleted {
 		t.Fatalf("orgs %+v next %d", orgs, next)
 	}
 	if len(*queries) != 3 {
@@ -409,6 +433,8 @@ func TestOrgsRefusesMalformedEntries(t *testing.T) {
 		`{"id":"a","status":"active","revision":1,"quotas":{}}`,
 		`{"id":"a","status":"active","revision":5,"quotas":[]}`,
 		`{"id":"a","status":"active","revision":5}`,
+		`{"id":"a","status":"active","revision":5,"home_region":"EU","quotas":{}}`,
+		`{"id":"a","status":"active","revision":5,"home_region":"e","quotas":{}}`,
 	} {
 		c, _ := orgPages(t, map[string]string{"limit=500&since=1": `{"orgs":[` + entry + `]}`})
 		if orgs, next, err := c.Orgs(context.Background(), 1); err == nil || orgs != nil || next != 1 {
