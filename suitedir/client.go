@@ -1,10 +1,11 @@
 // Package suitedir is the client for KyIdentity's suite directory: which suite apps a user
-// may open, the organisation's people for a picker, its suite groups (per org on a multi-tenant KyIdentity), the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations and erased subjects. Server to server, with
+// may open, the organisation's people for a picker, its suite groups (per org on a multi-tenant KyIdentity), the URL and shared syncauth secret of a paired app, and, on a multi-tenant KyIdentity, its organisations and erased subjects, plus storage usage reports and reserved grants. Server to server, with
 // the calling app's own OAuth client credentials (client_secret_basic). Contract:
 // KyIdentity-server docs/SUITE-DIRECTORY.md.
 package suitedir
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -367,6 +368,10 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 }
 
 func (c *Client) fetch(ctx context.Context, path string, q url.Values, limit int, out any) error {
+	return c.request(ctx, http.MethodGet, path, q, nil, limit, out)
+}
+
+func (c *Client) request(ctx context.Context, method, path string, q url.Values, body []byte, limit int, out any) error {
 	base, err := url.Parse(strings.TrimRight(c.Issuer, "/"))
 	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" ||
 		base.Scheme != "https" && !(base.Scheme == "http" && isLoopback(base.Hostname())) {
@@ -374,12 +379,15 @@ func (c *Client) fetch(ctx context.Context, path string, q url.Values, limit int
 	}
 	u := base.JoinPath("api", "suite", path)
 	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.SetBasicAuth(c.ClientID, c.ClientSecret)
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	client := http.Client{Timeout: 10 * time.Second}
 	if c.HTTP != nil {

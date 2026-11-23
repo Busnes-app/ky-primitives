@@ -43,6 +43,9 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   apps replay erasures from zero until empty, checkpointing only notices they have applied.
   A regioned peer (`Peer.Regions`) is reached only through `URLFor(org's HomeRegion)`, never its `URL`; a malformed
   or empty `regions` fails `Peer`, so a dropped entry cannot turn a regioned peer into a one-URL one.
+  `ReportStorage` validates an entire bounded report batch and response against the submitted orgs,
+  sequences, bytes and requested grant. Missing/null figures fail the call. Products own durable
+  report snapshots, retries, grant expiry from request time and stale-sequence operator recovery.
   HTTPS issuer (loopback http for tests), no redirects, bounded body; no caching.
 - REUSE: `REUSE.toml` names every file's license and copyright; `LICENSES/` holds the
   texts. Copied third-party files (e.g. `recoverykey/testdata/xwing-vector.json`) keep
