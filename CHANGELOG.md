@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `s3.PutIfAbsent` adds signed create-exclusive PUT with typed
+  `ErrAlreadyExists` on HTTP 412. `Object.LastModified` exposes GET/HEAD/list provider
+  timestamps; zero means unknown age. Providers need atomic-write/metadata qualification;
+  products retain store-ID/orphan policy. Additive API with no dependency or migration.
+
 - Root (minor): `s3` adds shared streaming HTTPS PUT/GET/HEAD/DELETE, paginated object and
   version/marker listings and resumable exact-key/namespace erasure. Standard library only;
   no root or offsite dependency change. Products retain sealing/cache/quota and provider

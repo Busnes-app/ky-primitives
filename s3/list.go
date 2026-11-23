@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const maxListBody = 8 << 20
@@ -26,11 +27,12 @@ type VersionPage struct {
 }
 
 type objectXML struct {
-	XMLName   xml.Name
-	Key       string
-	VersionID string `xml:"VersionId"`
-	Size      *int64
-	IsLatest  bool
+	XMLName      xml.Name
+	Key          string
+	VersionID    string `xml:"VersionId"`
+	Size         *int64
+	IsLatest     bool
+	LastModified time.Time
 }
 
 func (c *Client) ListObjects(ctx context.Context, prefix, continuation string) (ObjectPage, error) {
@@ -59,7 +61,7 @@ func (c *Client) ListObjects(ctx context.Context, prefix, continuation string) (
 			return ObjectPage{}, failure("LIST", 200)
 		}
 		seen[key] = true
-		out.Objects = append(out.Objects, Object{Key: key, Size: *item.Size})
+		out.Objects = append(out.Objects, Object{Key: key, Size: *item.Size, LastModified: item.LastModified})
 	}
 	if *body.Truncated {
 		if body.Next == "" || body.Next == continuation || len(out.Objects) == 0 {
@@ -110,7 +112,7 @@ func (c *Client) ListObjectVersions(ctx context.Context, prefix string, cursor V
 			return VersionPage{}, failure("LIST", 200)
 		}
 		seen[ref] = true
-		obj := Object{Key: key, VersionID: item.VersionID, DeleteMarker: marker, IsLatest: item.IsLatest}
+		obj := Object{Key: key, VersionID: item.VersionID, DeleteMarker: marker, IsLatest: item.IsLatest, LastModified: item.LastModified}
 		if !marker {
 			obj.Size = *item.Size
 		}

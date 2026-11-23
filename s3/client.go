@@ -15,29 +15,34 @@ import (
 )
 
 var (
-	ErrNotFound = fs.ErrNotExist
-	ErrFailure  = errors.New("s3: request failed")
-	ErrInvalid  = errors.New("s3: invalid configuration or input")
+	ErrAlreadyExists = fs.ErrExist
+	ErrNotFound      = fs.ErrNotExist
+	ErrFailure       = errors.New("s3: request failed")
+	ErrInvalid       = errors.New("s3: invalid configuration or input")
 )
 
 // Error contains only locally selected operation/status data, never a URL, key, provider
 // message or underlying transport error. Retryable describes a transient failure, not whether
 // replaying a write is safe. Use errors.Is(err, ErrNotFound) for a missing object/version.
 type Error struct {
-	Operation  string
-	StatusCode int
-	Retryable  bool
-	Missing    bool
+	Operation     string
+	StatusCode    int
+	Retryable     bool
+	Missing       bool
+	AlreadyExists bool
 }
 
 func (e *Error) Error() string {
+	if e.AlreadyExists {
+		return "s3: " + e.Operation + ": object already exists"
+	}
 	if e.Missing {
 		return "s3: " + e.Operation + ": object or version not found"
 	}
 	return fmt.Sprintf("s3: %s failed (HTTP %d)", e.Operation, e.StatusCode)
 }
 func (e *Error) Is(target error) bool {
-	return (target == ErrNotFound && e.Missing) || (target == ErrFailure && !e.Missing)
+	return (target == ErrAlreadyExists && e.AlreadyExists) || (target == ErrNotFound && e.Missing) || (target == ErrFailure && !e.Missing && !e.AlreadyExists)
 }
 
 // Config selects a path-style HTTPS endpoint and bucket. HTTP supplies optional transport,
@@ -97,12 +102,26 @@ type Object struct {
 	Size         int64
 	DeleteMarker bool
 	IsLatest     bool
+	// LastModified is provider metadata, zero when absent. Products must not infer orphan
+	// age from a zero value; storage retention policy remains outside this client.
+	LastModified time.Time
 }
 
 // Put streams a known-length body with SigV4 UNSIGNED-PAYLOAD over HTTPS, without
 // whole-body hashing, buffering or local spool. It is never retried: replay can add a version.
 // The caller owns its reader, which must unblock on cancellation if it can block in Read.
 func (c *Client) Put(ctx context.Context, key string, body io.Reader, size int64) (Object, error) {
+	return c.put(ctx, key, body, size, false)
+}
+
+// PutIfAbsent streams PUT with If-None-Match: *. ErrAlreadyExists means the provider
+// returned HTTP 412; no HEAD-then-PUT fallback or automatic replay is attempted. The
+// provider must implement atomic conditional writes; qualify that behavior before use.
+func (c *Client) PutIfAbsent(ctx context.Context, key string, body io.Reader, size int64) (Object, error) {
+	return c.put(ctx, key, body, size, true)
+}
+
+func (c *Client) put(ctx context.Context, key string, body io.Reader, size int64, absent bool) (Object, error) {
 	if key == "" || size < 0 || (body == nil && size != 0) {
 		return Object{}, ErrInvalid
 	}
@@ -134,8 +153,15 @@ func (c *Client) Put(ctx context.Context, key string, body io.Reader, size int64
 		}
 	}
 	req.ContentLength = size
+	if absent {
+		req.Header.Set("If-None-Match", "*")
+	}
 	resp, err := c.do(req, false, false)
 	if err != nil {
+		var e *Error
+		if absent && errors.As(err, &e) && e.StatusCode == http.StatusPreconditionFailed {
+			e.AlreadyExists = true
+		}
 		return Object{}, err
 	}
 	defer resp.Body.Close()
@@ -220,7 +246,14 @@ func metadata(op, key, versionID string, resp *http.Response) (Object, error) {
 	if resp.ContentLength < 0 || (versionID != "" && id != versionID) || resp.Header.Get("X-Amz-Delete-Marker") == "true" {
 		return Object{}, failure(op, resp.StatusCode)
 	}
-	return Object{Key: key, VersionID: id, Size: resp.ContentLength}, nil
+	var modified time.Time
+	if raw := resp.Header.Get("Last-Modified"); raw != "" {
+		var err error
+		if modified, err = http.ParseTime(raw); err != nil {
+			return Object{}, failure(op, resp.StatusCode)
+		}
+	}
+	return Object{Key: key, VersionID: id, Size: resp.ContentLength, LastModified: modified}, nil
 }
 
 func failure(op string, status int) *Error {
