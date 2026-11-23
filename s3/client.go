@@ -99,8 +99,8 @@ type Object struct {
 	IsLatest     bool
 }
 
-// Put streams a known-length body with SigV4 UNSIGNED-PAYLOAD over HTTPS: no read-ahead,
-// hashing, buffering or local spool. It is never retried: replay can create another version.
+// Put streams a known-length body with SigV4 UNSIGNED-PAYLOAD over HTTPS, without
+// whole-body hashing, buffering or local spool. It is never retried: replay can add a version.
 // The caller owns its reader, which must unblock on cancellation if it can block in Read.
 func (c *Client) Put(ctx context.Context, key string, body io.Reader, size int64) (Object, error) {
 	if key == "" || size < 0 || (body == nil && size != 0) {
@@ -118,6 +118,20 @@ func (c *Client) Put(ctx context.Context, key string, body io.Reader, size int64
 	req, err := c.request(ctx, http.MethodPut, key, nil, stream)
 	if err != nil {
 		return Object{}, err
+	}
+	if size == 0 && body != nil {
+		if err := req.Context().Err(); err != nil {
+			return Object{}, err
+		}
+		// Refuse an incorrect zero length before S3 can replace any existing object.
+		var probe [1]byte
+		n, err := io.ReadFull(body, probe[:])
+		if err := req.Context().Err(); err != nil {
+			return Object{}, err
+		}
+		if n != 0 || err != io.EOF {
+			return Object{}, ErrInvalid
+		}
 	}
 	req.ContentLength = size
 	resp, err := c.do(req, false, false)

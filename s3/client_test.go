@@ -396,3 +396,34 @@ func TestGetPreservesGzipObjectBytes(t *testing.T) {
 		t.Fatal("GET changed stored bytes or metadata", obj, head, err)
 	}
 }
+
+func TestZeroSizePutChecksTheReaderBeforeSending(t *testing.T) {
+	var requests atomic.Int32
+	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if raw, err := io.ReadAll(r.Body); err != nil || len(raw) != 0 {
+			t.Error("nonempty zero-length request", err)
+		}
+	})
+	for _, body := range []io.Reader{strings.NewReader("must not replace existing bytes"), badBody{}} {
+		if _, err := c.Put(context.Background(), "existing", body, 0); !errors.Is(err, ErrInvalid) || strings.Contains(err.Error(), testSecret) {
+			t.Fatal("invalid zero length accepted", err)
+		}
+	}
+	if requests.Load() != 0 {
+		t.Fatal("invalid zero-length PUT reached S3")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.Put(ctx, "existing", strings.NewReader(""), 0); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	for _, body := range []io.Reader{nil, strings.NewReader("")} {
+		if obj, err := c.Put(context.Background(), "empty", body, 0); err != nil || obj.Size != 0 {
+			t.Fatal(obj, err)
+		}
+	}
+	if requests.Load() != 2 {
+		t.Fatal("valid empty PUT was not sent once")
+	}
+}
