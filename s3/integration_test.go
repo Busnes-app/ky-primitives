@@ -28,7 +28,7 @@ func TestS3VersionedIntegration(t *testing.T) {
 	}
 	proxy := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(u))
 	defer proxy.Close()
-	cfg := Config{Endpoint: proxy.URL, Bucket: os.Getenv("KY_TEST_S3_BUCKET"), Region: "us-east-1", AccessKey: os.Getenv("KY_TEST_S3_ACCESS_KEY"), SecretKey: os.Getenv("KY_TEST_S3_SECRET_KEY"), HTTP: proxy.Client()}
+	cfg := Config{Endpoint: proxy.URL, Bucket: os.Getenv("KY_TEST_S3_BUCKET") + "-" + strings.ToLower(rand.Text()), Region: "us-east-1", AccessKey: os.Getenv("KY_TEST_S3_ACCESS_KEY"), SecretKey: os.Getenv("KY_TEST_S3_SECRET_KEY"), HTTP: proxy.Client()}
 	c, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
