@@ -28,6 +28,10 @@ Keep unpublished changes separate from tagged releases.
   no root or offsite dependency change. Products retain sealing/cache/quota and provider
   replica/retention policy. Additive API, no migration, no automatic pruning; see `docs/S3.md`.
 
+- Root (minor): `suitedir.Client.ReportStorage` posts bounded usage/grant requests to
+  KyIdentity, validating the whole answer and refusing redirects. Products retain reporting
+  persistence and admission. Additive API; no migration or new dependency.
+
 - Root (minor): `suitedir.Client.Erased` reads a multi-tenant KyIdentity’s erased-subject
   feed in bounded pages. It returns the last validated revision and preserves the original
   checkpoint on error. Additive API, with no migration required.
