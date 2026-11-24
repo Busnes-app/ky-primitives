@@ -468,11 +468,12 @@ func TestProviderModificationTime(t *testing.T) {
 	modified := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("versions") {
-			io.WriteString(w, `<ListVersionsResult><IsTruncated>false</IsTruncated><Version><Key>key</Key><VersionId>v</VersionId><Size>3</Size><LastModified>2026-11-23T12:00:00Z</LastModified></Version><DeleteMarker><Key>marker</Key><VersionId>m</VersionId><LastModified>2026-11-23T12:00:00Z</LastModified></DeleteMarker></ListVersionsResult>`)
+			io.WriteString(w, `<ListVersionsResult><IsTruncated>false</IsTruncated><Version><Key>key</Key><VersionId>v</VersionId><Size>3</Size><ETag>&quot;opaque+/%=tag&quot;</ETag><LastModified>2026-11-23T12:00:00Z</LastModified></Version><DeleteMarker><Key>marker</Key><VersionId>m</VersionId><LastModified>2026-11-23T12:00:00Z</LastModified></DeleteMarker></ListVersionsResult>`)
 		} else if r.URL.Query().Get("list-type") == "2" {
-			io.WriteString(w, `<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>key</Key><Size>3</Size><LastModified>2026-11-23T12:00:00Z</LastModified></Contents></ListBucketResult>`)
+			io.WriteString(w, `<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>key</Key><Size>3</Size><ETag>&quot;opaque+/%=tag&quot;</ETag><LastModified>2026-11-23T12:00:00Z</LastModified></Contents></ListBucketResult>`)
 		} else {
 			w.Header().Set("Last-Modified", modified.Format(http.TimeFormat))
+			w.Header().Set("ETag", `"opaque+/%=tag"`)
 			w.Header().Set("Content-Length", "3")
 			if r.Method != "HEAD" {
 				io.WriteString(w, "abc")
@@ -501,6 +502,9 @@ func TestProviderModificationTime(t *testing.T) {
 		if !obj.LastModified.Equal(modified) {
 			t.Fatal("provider age lost", obj)
 		}
+		if !obj.DeleteMarker && obj.ETag != `"opaque+/%=tag"` {
+			t.Fatal("opaque provider tag lost", obj)
+		}
 	}
 }
 
@@ -518,5 +522,61 @@ func TestPutIfAbsentRefusesNonemptyZeroLength(t *testing.T) {
 	c, _ := tlsClient(t, func(http.ResponseWriter, *http.Request) { t.Error("invalid empty marker reached S3") })
 	if _, err := c.PutIfAbsent(context.Background(), "store-id", strings.NewReader("retained-id"), 0); !errors.Is(err, ErrInvalid) {
 		t.Fatal("invalid conditional zero-length body accepted", err)
+	}
+}
+
+func TestPutIfMatchPreservesOpaqueTagAndNeverReplays(t *testing.T) {
+	const tag = `"opaque+/%=tag"`
+	for _, status := range []int{200, 412, 404, 409, 500} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var requests atomic.Int32
+			c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Header.Get("If-Match") != tag || !strings.Contains(r.Header.Get("Authorization"), ";if-match;") {
+					t.Error("condition changed or unsigned")
+				}
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("ETag", `"next"`)
+				w.Header().Set("X-Amz-Version-Id", "next-version")
+				w.WriteHeader(status)
+			})
+			for _, invalid := range []string{"", "*", `W/"weak"`, "unquoted", `"one", "two"`, "\"bad\nheader\"", `"bad space"`} {
+				if _, err := c.PutIfMatch(context.Background(), "key", invalid, strings.NewReader("x"), 1); !errors.Is(err, ErrInvalid) {
+					t.Fatal("invalid tag accepted", err)
+				}
+			}
+			if requests.Load() != 0 {
+				t.Fatal("invalid tag reached S3")
+			}
+			obj, err := c.PutIfMatch(context.Background(), "key", tag, strings.NewReader("x"), 1)
+			switch status {
+			case 200:
+				if err != nil || obj.ETag != `"next"` || obj.VersionID != "next-version" {
+					t.Fatal(obj, err)
+				}
+			case 412:
+				var e *Error
+				if !errors.Is(err, ErrPrecondition) || errors.Is(err, ErrAlreadyExists) || errors.Is(err, ErrFailure) || !errors.As(err, &e) || !e.Precondition {
+					t.Fatal("untyped precondition", err)
+				}
+			default:
+				if !errors.Is(err, ErrFailure) || errors.Is(err, ErrPrecondition) {
+					t.Fatal("wrong conditional failure", err)
+				}
+			}
+			if requests.Load() != 1 {
+				t.Fatal("conditional write retried or fell back")
+			}
+		})
+	}
+}
+
+func TestMalformedProviderTagFailsWithoutEcho(t *testing.T) {
+	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", "bad-secret-tag")
+		w.Header().Set("Content-Length", "0")
+	})
+	if _, err := c.Head(context.Background(), "key", ""); !errors.Is(err, ErrFailure) || strings.Contains(err.Error(), "bad-secret-tag") {
+		t.Fatal(err)
 	}
 }

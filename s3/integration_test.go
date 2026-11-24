@@ -124,6 +124,36 @@ func TestS3VersionedIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A stale If-Match cannot append a retained version or recreate a fully erased key.
+	casKey := prefix + "cas"
+	previous, err := c.PutIfAbsent(ctx, casKey, strings.NewReader("predecessor"), 11)
+	if err != nil || !validETag(previous.ETag) {
+		t.Fatal("provider lacks predecessor tag", err)
+	}
+	if _, err := c.PutIfMatch(ctx, casKey, `"wrong-predecessor"`, nil, 0); !errors.Is(err, ErrPrecondition) {
+		t.Fatal("wrong tag accepted", err)
+	}
+	page, err := c.ListObjectVersions(ctx, casKey, VersionCursor{})
+	if err != nil || len(page.Objects) != 1 {
+		t.Fatal("refused write created a version", page, err)
+	}
+	current, err := c.PutIfMatch(ctx, casKey, previous.ETag, strings.NewReader("replacement"), 11)
+	if err != nil || !validETag(current.ETag) || current.ETag == previous.ETag {
+		t.Fatal("matching tag write", current, err)
+	}
+	if _, err := c.PutIfMatch(ctx, casKey, previous.ETag, nil, 0); !errors.Is(err, ErrPrecondition) {
+		t.Fatal("stale tag accepted", err)
+	}
+	if err := c.DeleteAllVersions(ctx, casKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.PutIfMatch(ctx, casKey, current.ETag, nil, 0); err == nil {
+		t.Fatal("conditional write resurrected absent key")
+	}
+	page, err = c.ListObjectVersions(ctx, casKey, VersionCursor{})
+	if err != nil || len(page.Objects) != 0 {
+		t.Fatal("erased key was recreated", page, err)
+	}
 	key := prefix + "file +%é.txt"
 	first, err := c.Put(ctx, key, strings.NewReader("first"), 5)
 	if err != nil {

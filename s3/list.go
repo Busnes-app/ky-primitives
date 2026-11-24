@@ -33,6 +33,7 @@ type objectXML struct {
 	Size         *int64
 	IsLatest     bool
 	LastModified time.Time
+	ETag         string
 }
 
 func (c *Client) ListObjects(ctx context.Context, prefix, continuation string) (ObjectPage, error) {
@@ -57,11 +58,11 @@ func (c *Client) ListObjects(ctx context.Context, prefix, continuation string) (
 	seen := map[string]bool{}
 	for _, item := range body.Objects {
 		key, err := decodeKey(item.Key, body.Encoding)
-		if err != nil || key == "" || !strings.HasPrefix(key, prefix) || item.Size == nil || *item.Size < 0 || seen[key] {
+		if err != nil || key == "" || !strings.HasPrefix(key, prefix) || item.Size == nil || *item.Size < 0 || (item.ETag != "" && !validETag(item.ETag)) || seen[key] {
 			return ObjectPage{}, failure("LIST", 200)
 		}
 		seen[key] = true
-		out.Objects = append(out.Objects, Object{Key: key, Size: *item.Size, LastModified: item.LastModified})
+		out.Objects = append(out.Objects, Object{Key: key, Size: *item.Size, LastModified: item.LastModified, ETag: item.ETag})
 	}
 	if *body.Truncated {
 		if body.Next == "" || body.Next == continuation || len(out.Objects) == 0 {
@@ -104,7 +105,7 @@ func (c *Client) ListObjectVersions(ctx context.Context, prefix string, cursor V
 			continue
 		}
 		key, err := decodeKey(item.Key, body.Encoding)
-		if err != nil || key == "" || !strings.HasPrefix(key, prefix) || item.VersionID == "" || (!marker && (item.Size == nil || *item.Size < 0)) {
+		if err != nil || key == "" || !strings.HasPrefix(key, prefix) || item.VersionID == "" || (item.ETag != "" && !validETag(item.ETag)) || (!marker && (item.Size == nil || *item.Size < 0)) {
 			return VersionPage{}, failure("LIST", 200)
 		}
 		ref := VersionCursor{key, item.VersionID}
@@ -112,7 +113,7 @@ func (c *Client) ListObjectVersions(ctx context.Context, prefix string, cursor V
 			return VersionPage{}, failure("LIST", 200)
 		}
 		seen[ref] = true
-		obj := Object{Key: key, VersionID: item.VersionID, DeleteMarker: marker, IsLatest: item.IsLatest, LastModified: item.LastModified}
+		obj := Object{Key: key, VersionID: item.VersionID, DeleteMarker: marker, IsLatest: item.IsLatest, LastModified: item.LastModified, ETag: item.ETag}
 		if !marker {
 			obj.Size = *item.Size
 		}

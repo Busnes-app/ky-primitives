@@ -21,9 +21,11 @@ func (c *Client) sign(req *http.Request, now time.Time) {
 	req.Header.Set("X-Amz-Date", stamp)
 	req.Header.Set("X-Amz-Content-Sha256", payload)
 	headers, signed := "host:"+req.URL.Host+"\n", "host"
-	if condition := req.Header.Get("If-None-Match"); condition != "" {
-		headers += "if-none-match:" + condition + "\n"
-		signed += ";if-none-match"
+	for _, name := range []string{"if-match", "if-none-match"} {
+		if condition := req.Header.Get(name); condition != "" {
+			headers += name + ":" + condition + "\n"
+			signed += ";" + name
+		}
 	}
 	headers += "x-amz-content-sha256:" + payload + "\nx-amz-date:" + stamp + "\n"
 	signed += ";x-amz-content-sha256;x-amz-date"

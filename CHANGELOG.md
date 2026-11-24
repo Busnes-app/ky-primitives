@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): `s3.PutIfMatch` adds signed conditional replacement with a strong opaque
+  quoted ETag and typed `ErrPrecondition` on HTTP 412; `Object.ETag` exposes provider
+  metadata. No retries/fallback, dependency or migration. Product erasure protocols and
+  provider conditional-write qualification remain required; see `docs/S3.md`.
+
 - Root (minor): `s3.PutIfAbsent` adds signed create-exclusive PUT with typed
   `ErrAlreadyExists` on HTTP 412. `Object.LastModified` exposes GET/HEAD/list provider
   timestamps; zero means unknown age. Providers need atomic-write/metadata qualification;

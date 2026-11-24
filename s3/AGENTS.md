@@ -19,6 +19,10 @@ writer fences and provider replica/retention policy. `docs/S3.md` is the public 
   and never replays or falls back to an unconditional write. Providers must be qualified
   for atomic conditional writes. `Object.LastModified` is zero for unknown age; product
   orphan deletion must require age proof. Malformed supplied timestamps fail closed.
+- `PutIfMatch` signs one exact strong quoted ETag and never retries/falls back. Only its
+  HTTP 412 maps to `ErrPrecondition`; 404/409 remain failures. Preserve opaque `ETag`
+  metadata/quotes and never infer a digest/version from it. Products prove their complete
+  delayed-writer/erasure fence; these wire operations do not establish that protocol.
 - Errors contain locally selected operation/status data; credentials, provider messages,
   headers, URLs, keys and underlying transport errors stay out of error strings.
 - Exact erasure always names a nonempty version ID, delete markers included. Prefix
