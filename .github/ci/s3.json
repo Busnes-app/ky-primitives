@@ -1,0 +1,1 @@
+{"identities":[{"name":"ky-primitives-ci","credentials":[{"accessKey":"ky-primitives-ci","secretKey":"ky-primitives-ci-fixture-secret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}

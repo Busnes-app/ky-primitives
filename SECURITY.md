@@ -15,6 +15,7 @@ and disclosure.
 - The library handles key material and sealed containers. No public API may let a caller extract a private key, seed, or share, and the library must not log them.
 - Capsule sealing binds a container to the pinned recovery public key; a change must preserve that binding and the integrity proof that `capsule.Open` enforces.
 - The recovery client refuses non-HTTPS recovery URLs and, by default, private, loopback, and link-local targets; an explicit opt-in exists for operator LANs with loopback still refused.
+- Shared primary `s3` requests require verified HTTPS and refuse redirects. Streaming PUT uses UNSIGNED-PAYLOAD under TLS; products own authenticated sealing, authorization and quota/replica policy. Explicit all-version erasure requires a writer fence and cannot override provider retention or erase another bucket's replica. See [the S3 contract](docs/S3.md).
 - Public functions are a boundary: validate there, and keep error text free of secret material.
 - TOTP refuses decoded secrets below 128 bits; preserve legacy enrolment records
   and require issuer re-enrolment rather than silently replacing their secrets.

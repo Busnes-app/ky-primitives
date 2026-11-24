@@ -28,7 +28,7 @@ documented.
 6. **Key files are never silently replaced, weakened or guessed.** A corrupt, short or
    world-readable key file is an error.
 7. **Outbound clients do not leak credentials or follow an attacker somewhere else**: SCIM,
-   JWKS and offsite targets.
+   JWKS, shared S3 and offsite targets.
 8. **Logs and audit chains cannot be forged** by the values written into them.
 
 ## Threat model
@@ -55,7 +55,7 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
    share is parsed strictly and bounded before any expensive work.
 3. **Inbound requests → `oidcverify`, `syncauth`.** Signatures and claims are checked before
    the handler sees the request; bodies are read through a size limit.
-4. **This process → remote servers** (`oidcverify` JWKS, `scim`, `suitedir`, `offsite`). Each
+4. **This process → remote servers** (`oidcverify` JWKS, `scim`, `suitedir`, `s3`, `offsite`). Each
    client refuses redirects and requires HTTPS or a pinned key, except the S3 endpoint override
    (see Residual risk) and `suitedir`'s plain HTTP to a loopback IP literal.
 5. **This module → its dependencies.** The root module may depend only on `golang.org/x/crypto`
@@ -143,3 +143,22 @@ receiving product (see [AGENTS.md](../AGENTS.md)).
 
 A pull request that changes a trust boundary or a security requirement must update this page in
 the same change.
+
+## Shared primary S3 transport
+
+The root `s3` package requires verified HTTPS and refuses all signed redirects. Its errors
+contain locally selected operation/status data only; response bodies, URLs and transport
+errors cannot echo credentials. PUT streams UNSIGNED-PAYLOAD over TLS; product sealing
+supplies stored-content integrity and confidentiality. This client handles opaque bytes,
+not end-to-end encryption or product authorization.
+
+Version IDs and version-list markers remain opaque. A whole bounded page must validate
+inside the requested prefix before it can reach erasure. Exact-key erasure protects prefix
+neighbours; namespace erasure requires a nonempty slash-terminated prefix and deletes
+explicit version IDs/markers only, restarting listing after each batch. Callers fence
+writers, set deadlines and retain a resumable purge record. Provider Object Lock and
+out-of-bucket replicas cannot be overridden or claimed deleted by this client.
+
+Evidence: `s3` unit tests cover stream/opaque-ID/redirect/error boundaries and interrupted
+purges; independent AWS-signer fixtures and a signature-checking versioned S3 integration
+fixture cover the wire contract. `docs/S3.md` owns the API and retry/replication limits.

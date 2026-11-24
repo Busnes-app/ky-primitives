@@ -7,6 +7,7 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 
 ## Local contracts
 
+- `s3` owns the shared, standard-library-only primary object/version wire client. Products retain sealing, caches, authorization, quota and provider replica/retention policy; see `s3/AGENTS.md` and `docs/S3.md`.
 - Keep the root module's dependency budget and package import boundary enforced by
   `nodeps_test.go`. `oidcverify` remains standard-library-only.
 - `docs/STRONG-CRYPTO.md` owns the library's supported key/TLS configuration.
@@ -66,4 +67,5 @@ and use signed tokens against the HTTPS JWKS fixture for trust-boundary regressi
 
 ## Child DOX Index
 
+- `s3/AGENTS.md`: signed HTTPS object/version transport, pagination and explicit erasure.
 - `applysetup/AGENTS.md`: container-local installer bundle/capability/report boundaries.
