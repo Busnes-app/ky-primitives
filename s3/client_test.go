@@ -427,3 +427,156 @@ func TestZeroSizePutChecksTheReaderBeforeSending(t *testing.T) {
 		t.Fatal("valid empty PUT was not sent once")
 	}
 }
+
+func TestPutIfAbsentHasTypedConflictAndNeverReplays(t *testing.T) {
+	for _, status := range []int{200, 412, 409, 403, 500} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var calls atomic.Int32
+			c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if r.Method != "PUT" || r.Header.Get("If-None-Match") != "*" || !strings.Contains(r.Header.Get("Authorization"), ";if-none-match;") {
+					t.Error("condition absent or unsigned")
+				}
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("X-Amz-Version-Id", "created-version")
+				w.WriteHeader(status)
+			})
+			obj, err := c.PutIfAbsent(context.Background(), "marker", strings.NewReader("id"), 2)
+			switch status {
+			case 200:
+				if err != nil || obj.Size != 2 || obj.VersionID != "created-version" {
+					t.Fatal(obj, err)
+				}
+			case 412:
+				var e *Error
+				if !errors.Is(err, ErrAlreadyExists) || errors.Is(err, ErrFailure) || errors.Is(err, ErrNotFound) || !errors.As(err, &e) || !e.AlreadyExists {
+					t.Fatal("untyped existing object", err)
+				}
+			default:
+				if !errors.Is(err, ErrFailure) || errors.Is(err, ErrAlreadyExists) {
+					t.Fatal("wrong conflict classification", err)
+				}
+			}
+			if calls.Load() != 1 {
+				t.Fatal("conditional body replayed")
+			}
+		})
+	}
+}
+
+func TestProviderModificationTime(t *testing.T) {
+	modified := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("versions") {
+			io.WriteString(w, `<ListVersionsResult><IsTruncated>false</IsTruncated><Version><Key>key</Key><VersionId>v</VersionId><Size>3</Size><ETag>&quot;opaque+/%=tag&quot;</ETag><LastModified>2026-11-23T12:00:00Z</LastModified></Version><DeleteMarker><Key>marker</Key><VersionId>m</VersionId><LastModified>2026-11-23T12:00:00Z</LastModified></DeleteMarker></ListVersionsResult>`)
+		} else if r.URL.Query().Get("list-type") == "2" {
+			io.WriteString(w, `<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>key</Key><Size>3</Size><ETag>&quot;opaque+/%=tag&quot;</ETag><LastModified>2026-11-23T12:00:00Z</LastModified></Contents></ListBucketResult>`)
+		} else {
+			w.Header().Set("Last-Modified", modified.Format(http.TimeFormat))
+			w.Header().Set("ETag", `"opaque+/%=tag"`)
+			w.Header().Set("Content-Length", "3")
+			if r.Method != "HEAD" {
+				io.WriteString(w, "abc")
+			}
+		}
+	})
+	ctx := context.Background()
+	body, get, err := c.Get(ctx, "key", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body.Close()
+	head, err := c.Head(ctx, "key", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := c.ListObjects(ctx, "", "")
+	if err != nil || len(objects.Objects) != 1 {
+		t.Fatal(objects, err)
+	}
+	versions, err := c.ListObjectVersions(ctx, "", VersionCursor{})
+	if err != nil || len(versions.Objects) != 2 {
+		t.Fatal(versions, err)
+	}
+	for _, obj := range []Object{get, head, objects.Objects[0], versions.Objects[0], versions.Objects[1]} {
+		if !obj.LastModified.Equal(modified) {
+			t.Fatal("provider age lost", obj)
+		}
+		if !obj.DeleteMarker && obj.ETag != `"opaque+/%=tag"` {
+			t.Fatal("opaque provider tag lost", obj)
+		}
+	}
+}
+
+func TestInvalidModificationTimeFailsClosed(t *testing.T) {
+	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Last-Modified", "bad-secret-timestamp")
+		w.Header().Set("Content-Length", "0")
+	})
+	if _, err := c.Head(context.Background(), "key", ""); !errors.Is(err, ErrFailure) || strings.Contains(err.Error(), "bad-secret-timestamp") {
+		t.Fatal(err)
+	}
+}
+
+func TestPutIfAbsentRefusesNonemptyZeroLength(t *testing.T) {
+	c, _ := tlsClient(t, func(http.ResponseWriter, *http.Request) { t.Error("invalid empty marker reached S3") })
+	if _, err := c.PutIfAbsent(context.Background(), "store-id", strings.NewReader("retained-id"), 0); !errors.Is(err, ErrInvalid) {
+		t.Fatal("invalid conditional zero-length body accepted", err)
+	}
+}
+
+func TestPutIfMatchPreservesOpaqueTagAndNeverReplays(t *testing.T) {
+	const tag = `"opaque+/%=tag"`
+	for _, status := range []int{200, 412, 404, 409, 500} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var requests atomic.Int32
+			c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Header.Get("If-Match") != tag || !strings.Contains(r.Header.Get("Authorization"), ";if-match;") {
+					t.Error("condition changed or unsigned")
+				}
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("ETag", `"next"`)
+				w.Header().Set("X-Amz-Version-Id", "next-version")
+				w.WriteHeader(status)
+			})
+			for _, invalid := range []string{"", "*", `W/"weak"`, "unquoted", `"one", "two"`, "\"bad\nheader\"", `"bad space"`} {
+				if _, err := c.PutIfMatch(context.Background(), "key", invalid, strings.NewReader("x"), 1); !errors.Is(err, ErrInvalid) {
+					t.Fatal("invalid tag accepted", err)
+				}
+			}
+			if requests.Load() != 0 {
+				t.Fatal("invalid tag reached S3")
+			}
+			obj, err := c.PutIfMatch(context.Background(), "key", tag, strings.NewReader("x"), 1)
+			switch status {
+			case 200:
+				if err != nil || obj.ETag != `"next"` || obj.VersionID != "next-version" {
+					t.Fatal(obj, err)
+				}
+			case 412:
+				var e *Error
+				if !errors.Is(err, ErrPrecondition) || errors.Is(err, ErrAlreadyExists) || errors.Is(err, ErrFailure) || !errors.As(err, &e) || !e.Precondition {
+					t.Fatal("untyped precondition", err)
+				}
+			default:
+				if !errors.Is(err, ErrFailure) || errors.Is(err, ErrPrecondition) {
+					t.Fatal("wrong conditional failure", err)
+				}
+			}
+			if requests.Load() != 1 {
+				t.Fatal("conditional write retried or fell back")
+			}
+		})
+	}
+}
+
+func TestMalformedProviderTagFailsWithoutEcho(t *testing.T) {
+	c, _ := tlsClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", "bad-secret-tag")
+		w.Header().Set("Content-Length", "0")
+	})
+	if _, err := c.Head(context.Background(), "key", ""); !errors.Is(err, ErrFailure) || strings.Contains(err.Error(), "bad-secret-tag") {
+		t.Fatal(err)
+	}
+}

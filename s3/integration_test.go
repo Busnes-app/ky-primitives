@@ -57,6 +57,103 @@ func TestS3VersionedIntegration(t *testing.T) {
 			t.Error("fixture cleanup", err)
 		}
 	}()
+	// Atomic marker creation must not overwrite a different install's retained ID.
+	claim := prefix + "store-id"
+	created, err := c.PutIfAbsent(ctx, claim, strings.NewReader("owner-one"), 9)
+	if err != nil || created.VersionID == "" {
+		t.Fatal("exclusive create", err)
+	}
+	if _, err := c.PutIfAbsent(ctx, claim, strings.NewReader("owner-two"), 9); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatal("exclusive create replaced marker", err)
+	}
+	markerBody, markerObj, err := c.Get(ctx, claim, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerRaw, err := io.ReadAll(markerBody)
+	markerBody.Close()
+	if err != nil || string(markerRaw) != "owner-one" || markerObj.LastModified.IsZero() {
+		t.Fatal("marker/age proof", markerObj, err)
+	}
+	if err := c.DeleteAllVersions(ctx, claim); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		claim := prefix + "race-" + rand.Text()
+		type result struct {
+			value string
+			err   error
+		}
+		results := make(chan result, 2)
+		start := make(chan struct{})
+		for _, value := range []string{"owner-one", "owner-two"} {
+			go func() {
+				<-start
+				_, err := c.PutIfAbsent(ctx, claim, strings.NewReader(value), int64(len(value)))
+				results <- result{value, err}
+			}()
+		}
+		close(start)
+		winner, failures := "", 0
+		for range 2 {
+			r := <-results
+			if r.err == nil {
+				if winner != "" {
+					t.Fatal("two exclusive creates succeeded")
+				}
+				winner = r.value
+			} else if errors.Is(r.err, ErrAlreadyExists) {
+				failures++
+			} else {
+				t.Fatal("concurrent exclusive create", r.err)
+			}
+		}
+		if winner == "" || failures != 1 {
+			t.Fatal("exclusive race did not choose one winner")
+		}
+		body, _, err := c.Get(ctx, claim, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(body)
+		body.Close()
+		if err != nil || string(raw) != winner {
+			t.Fatal("exclusive race replaced winning bytes", err)
+		}
+		if err := c.DeleteAllVersions(ctx, claim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A stale If-Match cannot append a retained version or recreate a fully erased key.
+	casKey := prefix + "cas"
+	previous, err := c.PutIfAbsent(ctx, casKey, strings.NewReader("predecessor"), 11)
+	if err != nil || !validETag(previous.ETag) {
+		t.Fatal("provider lacks predecessor tag", err)
+	}
+	if _, err := c.PutIfMatch(ctx, casKey, `"wrong-predecessor"`, nil, 0); !errors.Is(err, ErrPrecondition) {
+		t.Fatal("wrong tag accepted", err)
+	}
+	page, err := c.ListObjectVersions(ctx, casKey, VersionCursor{})
+	if err != nil || len(page.Objects) != 1 {
+		t.Fatal("refused write created a version", page, err)
+	}
+	current, err := c.PutIfMatch(ctx, casKey, previous.ETag, strings.NewReader("replacement"), 11)
+	if err != nil || !validETag(current.ETag) || current.ETag == previous.ETag {
+		t.Fatal("matching tag write", current, err)
+	}
+	if _, err := c.PutIfMatch(ctx, casKey, previous.ETag, nil, 0); !errors.Is(err, ErrPrecondition) {
+		t.Fatal("stale tag accepted", err)
+	}
+	if err := c.DeleteAllVersions(ctx, casKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.PutIfMatch(ctx, casKey, current.ETag, nil, 0); err == nil {
+		t.Fatal("conditional write resurrected absent key")
+	}
+	page, err = c.ListObjectVersions(ctx, casKey, VersionCursor{})
+	if err != nil || len(page.Objects) != 0 {
+		t.Fatal("erased key was recreated", page, err)
+	}
 	key := prefix + "file +%é.txt"
 	first, err := c.Put(ctx, key, strings.NewReader("first"), 5)
 	if err != nil {
@@ -129,7 +226,7 @@ func TestS3VersionedIntegration(t *testing.T) {
 		t.Fatalf("version pages: %d entries in %d pages", count, pages)
 	}
 	objects, err := c.ListObjects(ctx, prefix, "")
-	if err != nil || len(objects.Objects) != 1 || objects.Objects[0].Key != paged {
+	if err != nil || len(objects.Objects) != 1 || objects.Objects[0].Key != paged || objects.Objects[0].LastModified.IsZero() {
 		t.Fatal(objects, err)
 	}
 	// A server that checks real signatures must refuse the wrong secret.

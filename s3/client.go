@@ -15,29 +15,39 @@ import (
 )
 
 var (
-	ErrNotFound = fs.ErrNotExist
-	ErrFailure  = errors.New("s3: request failed")
-	ErrInvalid  = errors.New("s3: invalid configuration or input")
+	ErrPrecondition  = errors.New("s3: precondition failed")
+	ErrAlreadyExists = fs.ErrExist
+	ErrNotFound      = fs.ErrNotExist
+	ErrFailure       = errors.New("s3: request failed")
+	ErrInvalid       = errors.New("s3: invalid configuration or input")
 )
 
 // Error contains only locally selected operation/status data, never a URL, key, provider
 // message or underlying transport error. Retryable describes a transient failure, not whether
 // replaying a write is safe. Use errors.Is(err, ErrNotFound) for a missing object/version.
 type Error struct {
-	Operation  string
-	StatusCode int
-	Retryable  bool
-	Missing    bool
+	Operation     string
+	StatusCode    int
+	Retryable     bool
+	Missing       bool
+	AlreadyExists bool
+	Precondition  bool
 }
 
 func (e *Error) Error() string {
+	if e.Precondition {
+		return "s3: " + e.Operation + ": precondition failed"
+	}
+	if e.AlreadyExists {
+		return "s3: " + e.Operation + ": object already exists"
+	}
 	if e.Missing {
 		return "s3: " + e.Operation + ": object or version not found"
 	}
 	return fmt.Sprintf("s3: %s failed (HTTP %d)", e.Operation, e.StatusCode)
 }
 func (e *Error) Is(target error) bool {
-	return (target == ErrNotFound && e.Missing) || (target == ErrFailure && !e.Missing)
+	return (target == ErrPrecondition && e.Precondition) || (target == ErrAlreadyExists && e.AlreadyExists) || (target == ErrNotFound && e.Missing) || (target == ErrFailure && !e.Missing && !e.AlreadyExists && !e.Precondition)
 }
 
 // Config selects a path-style HTTPS endpoint and bucket. HTTP supplies optional transport,
@@ -97,12 +107,38 @@ type Object struct {
 	Size         int64
 	DeleteMarker bool
 	IsLatest     bool
+	// LastModified is provider metadata, zero when absent. Products must not infer orphan
+	// age from a zero value; storage retention policy remains outside this client.
+	LastModified time.Time
+	// ETag is an opaque quoted provider token, not a content digest or a version ID.
+	ETag string
 }
 
 // Put streams a known-length body with SigV4 UNSIGNED-PAYLOAD over HTTPS, without
 // whole-body hashing, buffering or local spool. It is never retried: replay can add a version.
 // The caller owns its reader, which must unblock on cancellation if it can block in Read.
 func (c *Client) Put(ctx context.Context, key string, body io.Reader, size int64) (Object, error) {
+	return c.put(ctx, key, body, size, "", "")
+}
+
+// PutIfAbsent streams PUT with If-None-Match: *. ErrAlreadyExists means the provider
+// returned HTTP 412; no HEAD-then-PUT fallback or automatic replay is attempted. The
+// provider must implement atomic conditional writes; qualify that behavior before use.
+func (c *Client) PutIfAbsent(ctx context.Context, key string, body io.Reader, size int64) (Object, error) {
+	return c.put(ctx, key, body, size, "If-None-Match", "*")
+}
+
+// PutIfMatch streams only if the current object's ETag exactly matches the supplied strong
+// quoted token. HTTP 412 is ErrPrecondition; 404/409 remain failures. Never retries or falls
+// back to unconditional PUT. Products own fencing/ledger policy and provider qualification.
+func (c *Client) PutIfMatch(ctx context.Context, key, etag string, body io.Reader, size int64) (Object, error) {
+	if !validETag(etag) {
+		return Object{}, ErrInvalid
+	}
+	return c.put(ctx, key, body, size, "If-Match", etag)
+}
+
+func (c *Client) put(ctx context.Context, key string, body io.Reader, size int64, condition, token string) (Object, error) {
 	if key == "" || size < 0 || (body == nil && size != 0) {
 		return Object{}, ErrInvalid
 	}
@@ -134,12 +170,24 @@ func (c *Client) Put(ctx context.Context, key string, body io.Reader, size int64
 		}
 	}
 	req.ContentLength = size
+	if condition != "" {
+		req.Header.Set(condition, token)
+	}
 	resp, err := c.do(req, false, false)
 	if err != nil {
+		var e *Error
+		if errors.As(err, &e) && e.StatusCode == http.StatusPreconditionFailed {
+			e.AlreadyExists = condition == "If-None-Match"
+			e.Precondition = condition == "If-Match"
+		}
 		return Object{}, err
 	}
 	defer resp.Body.Close()
-	return Object{Key: key, VersionID: resp.Header.Get("X-Amz-Version-Id"), Size: size}, nil
+	etag, err := responseETag("PUT", resp)
+	if err != nil {
+		return Object{}, err
+	}
+	return Object{Key: key, VersionID: resp.Header.Get("X-Amz-Version-Id"), Size: size, ETag: etag}, nil
 }
 
 // Get opens the exact version when versionID is nonempty, otherwise the current object.
@@ -220,7 +268,18 @@ func metadata(op, key, versionID string, resp *http.Response) (Object, error) {
 	if resp.ContentLength < 0 || (versionID != "" && id != versionID) || resp.Header.Get("X-Amz-Delete-Marker") == "true" {
 		return Object{}, failure(op, resp.StatusCode)
 	}
-	return Object{Key: key, VersionID: id, Size: resp.ContentLength}, nil
+	var modified time.Time
+	if raw := resp.Header.Get("Last-Modified"); raw != "" {
+		var err error
+		if modified, err = http.ParseTime(raw); err != nil {
+			return Object{}, failure(op, resp.StatusCode)
+		}
+	}
+	etag, err := responseETag(op, resp)
+	if err != nil {
+		return Object{}, err
+	}
+	return Object{Key: key, VersionID: id, Size: resp.ContentLength, LastModified: modified, ETag: etag}, nil
 }
 
 func failure(op string, status int) *Error {
@@ -315,4 +374,27 @@ func escape(s string, slash bool) string {
 		s = strings.ReplaceAll(s, "%2F", "/")
 	}
 	return s
+}
+
+// validETag accepts exactly one strong RFC 9110 entity tag. Preserve the quotes/opaque bytes;
+// lists, wildcards, weak tags and header controls cannot stand in for an exact predecessor.
+func validETag(tag string) bool {
+	if len(tag) < 2 || tag[0] != '"' || tag[len(tag)-1] != '"' {
+		return false
+	}
+	for i := 1; i < len(tag)-1; i++ {
+		b := tag[i]
+		if b != 0x21 && (b < 0x23 || b == 0x7f) {
+			return false
+		}
+	}
+	return true
+}
+
+func responseETag(op string, resp *http.Response) (string, error) {
+	tag := resp.Header.Get("ETag")
+	if tag != "" && !validETag(tag) {
+		return "", failure(op, resp.StatusCode)
+	}
+	return tag, nil
 }

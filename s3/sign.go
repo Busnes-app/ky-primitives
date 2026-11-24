@@ -20,8 +20,15 @@ func (c *Client) sign(req *http.Request, now time.Time) {
 	}
 	req.Header.Set("X-Amz-Date", stamp)
 	req.Header.Set("X-Amz-Content-Sha256", payload)
-	headers := "host:" + req.URL.Host + "\nx-amz-content-sha256:" + payload + "\nx-amz-date:" + stamp + "\n"
-	const signed = "host;x-amz-content-sha256;x-amz-date"
+	headers, signed := "host:"+req.URL.Host+"\n", "host"
+	for _, name := range []string{"if-match", "if-none-match"} {
+		if condition := req.Header.Get(name); condition != "" {
+			headers += name + ":" + condition + "\n"
+			signed += ";" + name
+		}
+	}
+	headers += "x-amz-content-sha256:" + payload + "\nx-amz-date:" + stamp + "\n"
+	signed += ";x-amz-content-sha256;x-amz-date"
 	canonical := req.Method + "\n" + req.URL.EscapedPath() + "\n" + req.URL.RawQuery + "\n" + headers + "\n" + signed + "\n" + payload
 	digest := sha256.Sum256([]byte(canonical))
 	scope := date + "/" + c.region + "/s3/aws4_request"
