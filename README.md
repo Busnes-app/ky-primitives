@@ -58,6 +58,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`scim`](docs/IDENTITY.md#scim) | The SCIM 2.0 client KySignOn provisions accounts with, and the RFC 7643 User type it shares with a server. |
 | [`suitedir`](docs/IDENTITY.md#suitedir) | Asks KyIdentity which suite apps a user may open, which organisation people the calling app can offer, its suite groups, a paired app's URL and shared syncauth secret, and a multi-tenant install's organisations and erased subjects. |
 | [`s3`](docs/S3.md) | Shared signed HTTPS object/version client; products own storage policy. |
+| [`pqtls`](docs/STRONG-CRYPTO.md#hybrid-post-quantum-tls-key-exchange-pqtls) | Pins Ky-to-Ky TLS links to the hybrid X25519MLKEM768 key exchange and proves it in handshake tests. |
 | [`netallow`](docs/NETWORK.md#netallow) | The office-network allowlist that exempts requests from per-IP rate limits. |
 
 ## offsite nested module
