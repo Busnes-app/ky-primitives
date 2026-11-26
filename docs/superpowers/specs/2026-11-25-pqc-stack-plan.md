@@ -1,6 +1,7 @@
 # Ky stack post-quantum migration, plan
 
-Date: 2026-11-25. Status: **approved** (see "Owner answers"). W0, the cell mesh and the KyVault evaluation are being built. Owner request (2026-11-25): "I would like to see the whole stack migrated to PQC." KyPost goes first, in
+Date: 2026-11-25. Status: **approved** (see "Owner answers", updated 2026-11-26).
+Owner request (2026-11-25): "I would like to see the whole stack migrated to PQC." KyPost goes first, in
 its own spec (**A**: `KyPost-Server/docs/superpowers/specs/2026-11-25-pqc-openpgp-v6-design.md`, PR
 Busnes-app/KyPost-Server#743). This plan covers every other place the suite does key exchange, encryption to a
 public key, or signatures, and sets the order.
@@ -23,11 +24,17 @@ public key, or signatures, and sets the order.
     `aws-lc-rs` provider for hybrid TLS.
   - **Q10a-e decided:** mTLS plus a mesh; strict; built in a private infra repo, never shipped to third parties;
     monthly rotation plus rotation on every host change; alerts as recommended.
-- **Spec A answers that touch this plan:**
-  - Users' stored mail is re-encrypted to v6 (A P6).
-  - The browser pins an openpgp.js v7 commit and falls back to gopenpgp compiled to WASM. A Node 26 spike of
-    gopenpgp `profile.PQC()` under `GOOS=js GOARCH=wasm` produced an 8.8 MB module (2.4 MB gzipped) with 4-18 ms
-    operations.
+- **Owner decisions (2026-11-26).**
+  - **Q9, KyYard agent TLS.** Keep hybrid preferred and allow classical fallback at older operator-managed
+    reverse proxies. [KyYard-server #220](https://github.com/Busnes-app/KyYard-server/pull/220)
+  - **Q10, hosted cell mesh.** The owner created the private infrastructure repository for the strict mesh
+    and host bootstrap. Provisioning and deployment follow its operator guide.
+  - **Q11, KyVault.** The rustls `aws-lc-rs` switch landed. Trivy CI must fail on HIGH and CRITICAL findings
+    and upload SARIF after a failed scan. The approved exceptions cover three already-fixed findings on
+    Vaultwarden's `1.0.0` placeholder Cargo package. [KyVault-backend #6](https://github.com/Busnes-app/KyVault-backend/pull/6)
+- **Spec A answers that touch this plan.** KyPost re-encrypts stored mail to v6 (P6). The browser will use
+  gopenpgp WebAssembly for v4 and v6. Its P3–P6 PRs may merge on the normal current-head CI, security review
+  and PR Reviewer Guide gates. The phase dependencies and rollout gates still apply.
 
 Companion files in this directory:
 
@@ -79,8 +86,7 @@ KyNotes `teamKeys.ts`, KyCalendar `contentkey/suite.go`, kyguard `pqcrypto/sig.g
 - **Per-org keys need no PQ work.** KyDrive step K's per-org keys are symmetric: AES-256-GCM under an
   HKDF(deployment key) KEK, on the local branch `feat/per-org-keys` @ `ac85499`, unpushed. The same holds for
   KyNotes' content keys. What KyNotes needs is the team envelope swap above.
-- **No WireGuard is planned anywhere** (searched every repo), and no Rosenpass. The hosted cells have no link
-  design yet (Q10).
+- **Hosted cell links.** The inventory predates the strict WireGuard mesh selected in Q10.
 
 ## Defaults (apply to every row unless a question changes them)
 
@@ -104,8 +110,8 @@ KyNotes `teamKeys.ts`, KyCalendar `contentkey/suite.go`, kyguard `pqcrypto/sig.g
 
 | Wave | What | Changes for users | Gate |
 |---|---|---|---|
-| **W0** | Prove and pin hybrid key exchange: TLS handshake tests in every Go service (with and without `fips140=on`); a CI check refusing `CurvePreferences`/`tlsmlkem` overrides; explicit `ssl_ecdh_curve X25519MLKEM768:X25519:prime256v1` and an OpenSSL ≥ 3.5 check on the KyQuickStart nginx edge; PG18 `ssl_groups`; cloudflared strict PQ; KyQuickStart-AI Go ≥ 1.25 floor; kyguard drops SHA-1 SSH KEX; KyVault rustls `aws-lc-rs` (if Q11 keeps it) | None | Usual merge gate |
-| **W1** | Replace every classical key wrap on Ky code with X-Wing HPKE. Order: (1) ky-primitives `xwing` seal helper and its WASM build; (2) KyIdentity AD password queue; (3) KyPost device envelope (spec A P2); (4) KyNotes team envelopes and device linking; (5) KyIdentity keyring transfer and handoff; (6) KyCalendar CE2 wiring on the shared helper; (7) KyMessages guest call key, specified PQ before it is built; (8) local-only device key wraps: Android's RSA KEK becomes an auth-bound Keystore AES key; Apple moves to Secure Enclave ML-KEM where available (row 26) | Re-keying: KyNotes members, the AD DC agent and enrolled KyPost devices each re-key once | Owner approval for each re-key PR (it changes what existing keys can do) |
+| **W0** | Prove and pin hybrid key exchange: TLS handshake tests in every Go service (with and without `fips140=on`); a CI check refusing `CurvePreferences`/`tlsmlkem` overrides; explicit `ssl_ecdh_curve X25519MLKEM768:X25519:prime256v1` and an OpenSSL ≥ 3.5 check on the KyQuickStart nginx edge; PG18 `ssl_groups`; cloudflared strict PQ; KyQuickStart-AI Go ≥ 1.25 floor; kyguard drops SHA-1 SSH KEX; KyVault rustls `aws-lc-rs` and the HIGH/CRITICAL Trivy gate | None | Usual merge gate |
+| **W1** | Replace every classical key wrap on Ky code with X-Wing HPKE. Order: (1) ky-primitives `xwing` seal helper and its WASM build; (2) KyIdentity AD password queue; (3) KyPost device envelope (spec A P2); (4) KyNotes team envelopes and device linking; (5) KyIdentity keyring transfer and handoff; (6) KyCalendar CE2 wiring on the shared helper; (7) KyMessages guest call key, specified PQ before it is built; (8) local-only device key wraps: Android's RSA KEK becomes an auth-bound Keystore AES key; Apple moves to Secure Enclave ML-KEM where available (row 26) | Re-keying: KyNotes members, the AD DC agent and enrolled KyPost devices each re-key once | Owner approval for each re-key PR. KyPost uses its approved phase gates in spec A. |
 | **W2** | Hybrid signatures where we control both ends, long-lived trust first: (1) ky-primitives `hybridsig` (lifted from kyguard); (2) internal CAs and pinned identities (kyguard broker CA, KyDNS replicas, KyPost hosted receiving, KyYard agents) to ML-DSA-65 X.509 (RFC 9881); (3) TLS-pin rollover statements (KyPost relay, kydrive); (4) KyIdentity OIDC: multi-key JWKS and rotation first, then ML-DSA-65 JWS (RFC 9964) for Ky relying parties, RS256 kept for third parties; `oidcverify` and go-oidc RPs accept ML-DSA-65; (5) KyIdentity AD queue signing and KyAuth/kydrive device signatures where keys are in software; (6) optional capsule manifest signing (Q13); (7) release-key hygiene (Flatpak keys get an expiry) | Re-pairing for pinned identities; a new JWKS key | Owner approval for the OIDC change and each re-pair |
 | **W3** | Track upstream; adopt when it ships: vodozemac PQXDH / MLS PQ suites; Bitwarden PQ; WebAuthn ML-DSA (list COSE -49 now, Q6); Web Push; FCM/APNs; DKIM; DNSSEC; WebPKI ML-DSA; OpenSSH ML-DSA keys; Synapse federation; SMTP peers; Sigstore ML-DSA | None until adopted | Re-checked each quarter against R's sources |
 
@@ -113,9 +119,8 @@ KyPost's OpenPGP work (spec A) runs in parallel. A's P2 is W1 step 3, and A's P0
 
 ## Shared code for ky-primitives
 
-ky-primitives has no generic envelope, signing or TLS-config helper today: only `recoverykey`
-(`recoverykey/recoverykey.go:42,63-150 @ 871828c`) and the capsule-specific `capsule`. Five additions, each one
-small PR:
+The X-Wing envelope, hybrid signatures and TLS test helper landed in ky-primitives #83, #84 and #81.
+The OIDC and pinned-CA helpers remain planned.
 
 1. **`xwing`**: an X-Wing keypair type (generalised from `recoverykey`, which stays as a thin wrapper so capsules
    do not change) and `Seal(pub, info, aad, msg)` / `Open(priv, info, aad, ct)` with wire format
@@ -179,8 +184,8 @@ small PR:
   `diffie-hellman-group14-sha1`. Both are W0.
 - **TLS:** see Summary and rows 1-15. The one stack-internal link where Go clients cannot get the hybrid today is
   PostgreSQL. PG18's `ssl_groups` fixes it if the image has OpenSSL ≥ 3.5.
-- **WireGuard for hosted cells:** nothing is designed. Rosenpass (a PQ key exchange that feeds WireGuard a rotating
-  pre-shared key) is the standard way to make WireGuard PQ (Q10).
+- **WireGuard for hosted cells:** the selected strict mesh uses per-pair pre-shared keys delivered over hybrid SSH
+  alongside service-to-service mTLS. See Q10 and "Cell links".
 - **Push relays:**
   - Payload encryption is RFC 8291 (P-256 ECDH, AES-128-GCM). VAPID is ES256, FCM uses an RS256 service-account
     JWT and APNs an ES256 token. None has a PQ variant.
@@ -215,9 +220,11 @@ Residual, stated plainly: room keys still travel between devices over Olm, which
 to-device ciphertext (server mailbox rows and their backups) is harvest-now-decrypt-later exposed until vodozemac
 ships PQ. Delete to-device rows on acknowledgement so the window stays short.
 
-## Cell links (owner Q10: explore a WireGuard mesh)
+## Cell links (owner Q10)
 
-Research is in `2026-11-25-pqc-wireguard-mesh-research.md`. Read from primary sources; nothing was built or run.
+Research is in `2026-11-25-pqc-wireguard-mesh-research.md`. The implementation and bootstrap live in the
+private infrastructure repository. The implementation was tested in disposable containers. Host bootstrap
+and the systemd units still require verification on real hosts.
 
 **What a cell's hosts send each other.** HTTPS from the edge to the replicas, the PostgreSQL wire protocol (clients,
 PgBouncer, streaming replication), Ky-to-Ky mTLS (MX to receiving), operator SSH, and metrics. Nothing needs network
@@ -239,21 +246,19 @@ PQ channel makes recorded traffic safe against a future quantum computer.
 | NetBird + Rosenpass | As C | **Deprecated upstream in v0.82.0 (2026-10-29)** | No |
 | Nebula, Netmaker, innernet, Cilium WireGuard | Classical today | — | No |
 
-**Recommendation:** A now. If you want a mesh for firewalling and defence in depth (every internal port listening
-only on `wg0`, public firewalls reduced to the WireGuard port plus 443 from the edge), use **B in strict mode**: a link
-with no PSK carries nothing. Move to C or D when they ship ML-KEM in a release. The mesh never replaces app-level
-authentication: pins and `verify-full` stay.
+**Selected design:** A plus B in strict mode. A link requires a PSK. Application authentication still uses its
+existing pins and PostgreSQL `verify-full`. Track the upstream alternatives as they mature.
 
-**Decisions for Q10** (each with a recommendation):
+**Decisions for Q10:**
 
-- **10a. Mesh or not.** Recommend A plus B.
-- **10b. Strict or permissive.** Recommend strict inside a cell, because every host is ours.
+- **10a. Mesh or not.** Use A plus B.
+- **10b. Strict or permissive.** Use strict mode inside a cell.
 - **10c. Who manages it.** KyQuickStart is frozen against new orchestration features
-  (`KyQuickStart:AGENTS.md:683-686`). Recommend a small script in the private infra repo for the hosted cells, not
-  a KyQuickStart feature. Self-hosters keep option A.
-- **10d. PSK rotation.** Recommend monthly, and on every host change. A retired or compromised host's pairs are
-  re-keyed at once.
-- **10e. Monitoring.** Recommend alerts on a handshake older than 180 s and on any peer with no PSK.
+  (`KyQuickStart:AGENTS.md:683-686`). The private infrastructure repository owns the hosted mesh.
+  Self-hosters keep option A.
+- **10d. PSK rotation.** Rotate monthly and on every host change. Re-key a retired or compromised host's pairs
+  at once.
+- **10e. Monitoring.** Alert on handshakes older than 180 s and on any peer with no PSK.
 
 ## Plan table
 
@@ -265,7 +270,7 @@ working table, so cross-references stay valid.
 | # | App(s) | Use | Where | Today | PQC target | Blocker | Wave |
 |---|---|---|---|---|---|---|---|
 | 1 | All Go services and clients: ky-primitives (recoveryclient, s3, offsite S3), ky-server-base, dashboard (private), KyIdentity, KyMessages-Native, KyMessage-Server console, kydrive-server, kydrive-desktop, KyNotes, KyRecovery, KyDNS DoT/DoH, KyCalendar, KyPulse, KyYard (registry, client-go), KyQuickStart, KyVault worker (PR #1) | Outbound TLS key exchange | `KyIdentity-server:internal/netguard/netguard.go:62-71 @ 6e7df38`; `ky-primitives:recoveryclient/client.go:62,110,300 @ 871828c` | Go default groups. X25519MLKEM768 offered first. No `CurvePreferences` or `tlsmlkem=0` anywhere except kyguard. Stays first under `fips140=on` (go1.27.3 `defaults_fips140.go:35-43`) | X25519MLKEM768 (RFC 10024), already offered. Add a handshake test asserting `ConnectionState.CurveID == X25519MLKEM768` (Go 1.25+), with and without `fips140=on`, plus a CI grep that refuses `CurvePreferences` and `tlsmlkem` | none on our side. Per peer: SMTP, AD, SCIM, S3, IdP and apiserver peers are unverified | W0 |
-| 2 | KyPost-Server (direct TLS, hosted receiving mTLS), KyDNS replica, kyguard broker listener, KyYard agent↔server, kydrive TLS-pin probe | In-process Go TLS listeners and Ky↔Ky links | `KyPost-Server:backend/internal/api/tls.go:179-190 @ 928ba0be`; `kyguard-server:internal/brokerproto/tls.go:13 @ 37b302b` | Go defaults. kyguard sets `[X25519MLKEM768, X25519]` explicitly. TLS 1.2 clients get classical ECDHE | X25519MLKEM768, already negotiated Go↔Go. Add tests. Where both ends are ours (kyguard broker, KyDNS replica, KyPost receiving, KyYard agent) consider hybrid-only `CurvePreferences` to refuse classical fallback | none | W0 |
+| 2 | KyPost-Server (direct TLS, hosted receiving mTLS), KyDNS replica, kyguard broker listener, KyYard agent↔server, kydrive TLS-pin probe | In-process Go TLS listeners and Ky↔Ky links | `KyPost-Server:backend/internal/api/tls.go:179-190 @ 928ba0be`; `kyguard-server:internal/brokerproto/tls.go:13 @ 37b302b` | Go defaults. kyguard sets `[X25519MLKEM768, X25519]` explicitly. TLS 1.2 clients get classical ECDHE | X25519MLKEM768, already negotiated Go↔Go. Add tests. Use hybrid-only `CurvePreferences` where both TLS endpoints are ours (kyguard broker, KyDNS replica, KyPost receiving). KyYard agents offer hybrid first and keep classical fallback for operator-managed reverse proxies | none | W0 |
 | 3 | Every plain-HTTP server behind an edge (ky-server-base, dashboard (private), KyIdentity, kydrive, KyRecovery, KyNotes, KyCalendar, KyMessages-Native, KyPost, KyVault…); KQS nginx edge; NPM 2.17.1 | Inbound TLS at the reverse proxy | `KyQuickStart:internal/edge/nginxconf.go:63-67 @ 950c3f8`; `KyQuickStart:internal/catalog/apps/npm/manifest.yaml:8 @ 950c3f8`; `KyIdentity-server:docs/STRONG-CRYPTO.md` ("Configure the independent HTTPS edge") | No `ssl_ecdh_curve`, so OpenSSL defaults apply. OpenSSL in the pinned nginx 1.30.6-alpine and NPM digests: unverified (Alpine 3.23 and trixie ship 3.5.9) | X25519MLKEM768 via OpenSSL ≥3.5. Set `ssl_ecdh_curve X25519MLKEM768:X25519:prime256v1` explicitly, add an image OpenSSL-version check and a handshake probe in KQS e2e, and fix the documented edge examples in each `docs/STRONG-CRYPTO.md` | none (OpenSSL version in the digests unverified). Operator-run proxies are out of our control | W0 |
 | 4 | KyQuickStart, private infra repo | Tunnel connectors: cloudflared, frpc | `KyQuickStart:internal/edge/connector.go:26-88 @ 950c3f8`; (private infra repo) | cloudflared: PQ by default over QUIC, with silent non-PQ fallback and none over http2 (Cloudflare docs). frpc v0.71.0: Go TLS defaults (release-binary Go version unverified) | cloudflared `--post-quantum` (strict) and refuse `--protocol http2`. frpc: confirm the Go ≥1.24 build. The frps side is the operator's | none (frps peer is operator-run) | W0 |
 | 5 | KyQuickStart, KyRecovery (rest-server 0.14.0), kydrive and KyPost bulk backup | Restic → rest-server transport TLS | `KyQuickStart:internal/dockerhost/backup.go:88 @ 950c3f8`; `KyRecovery-server:docker-compose.restic.yml @ 45dfe28` | restic 0.19.1 Go TLS under `fips140=on` (Go 1.25 FIPS allows X25519MLKEM768). rest-server's Go version and groups: unverified | X25519MLKEM768, already on the client. Pin a rest-server build on Go ≥1.24 and add a handshake probe | none (rest-server build unverified). The payload is a symmetric restic repo, and capsules are X-Wing | W0 |
@@ -326,7 +331,7 @@ working table, so cross-references stay valid.
 | 61 | KyQuickStart (cert-manager, NPM certbot), private infra repo (TURN and native-mail certbot), operator edge certs; certificate-chain checks in every Go client and native app | Public WebPKI certificates | `KyQuickStart:internal/edge/nginx.go:336-373 @ 950c3f8`; `KyQuickStart:internal/edge/certs.go:213-226`; (private infra repo) | Let's Encrypt via cert-manager (RSA-2048 default, unverified) and certbot (ECDSA P-256) | upstream | CA/B Forum: SC-106 closed unmerged 2026-10-21, so no ML-DSA in public TLS | W3 |
 | 62 | KyQuickStart (runner key, host pins), KyQuickStart-AI (ssh-keygen ed25519, keyscan pin), ky-primitives offsite and KyRecovery SFTP (host and client keys) | SSH host and user key signatures | `KyQuickStart:internal/runner/state.go:166-196 @ 950c3f8`; `KyQuickStart:internal/remote/ssh.go:178-260`; `KyQuickStart-AI:kyqs-ai:67-75 @ 3a7b8ef` | Ed25519, ECDSA, RSA ≥2048 with SHA-2. Live-only forgery | upstream (x/crypto has ML-DSA SSH only under go1.27 tags, `ssh/mldsa.go:5`; standard and OpenSSH support unverified) | peer: OpenSSH has no ML-DSA keys (unverified) | W3 |
 | 63 | KyQuickStart-AI, KyYard (client-go), KyQuickStart | Kubernetes SA token and apiserver PKI | `KyQuickStart-AI:kyqs-ai:296-310 @ 3a7b8ef` | Cluster SA issuer key (RS256/ES256, unverified). Cluster CA | upstream | cluster owner and Kubernetes | W3 |
-| 64 | KyPost (server, browser, Android, Mac/iOS, Linux) | OpenPGP keys, encryption, signatures, WKD/Autocrypt publishing | `KyPost-Server:backend/internal/pgpmail/mime.go:179 @ 928ba0be`; `frontend/src/lib/pgpClient.ts:36-41,63-68` | v4 EdDSA-legacy / Curve25519 everywhere; `crypto.PGP()` = `profile.Default()` | RFC 9580 v6 + RFC 9980 (KyPost spec) | KyPost spec: openpgp.js v7 unreleased; Linux GnuPG has no v6 | A |
+| 64 | KyPost (server, browser, Android, Mac/iOS, Linux) | OpenPGP keys, encryption, signatures, WKD/Autocrypt publishing | `KyPost-Server:backend/internal/pgpmail/mime.go:179 @ 928ba0be`; `frontend/src/lib/pgpClient.ts:36-41,63-68` | v4 EdDSA-legacy / Curve25519 everywhere; `crypto.PGP()` = `profile.Default()` | RFC 9580 v6 + RFC 9980 (KyPost spec) | KyPost spec: production browser WASM and Linux v6 backend still need qualification | A |
 | 65 | KyPost-Server framing, browser, Android, Mac, Linux | Device enrollment envelope (carries the account private key), enrollment pubkey publish, SAS | `KyPost-Server:backend/internal/users/pgp_device_delivery.go:32,60-84 @ 928ba0be`; `frontend/src/lib/deviceEnrollment.ts:26,65-71,380-393` | HPKE base DHKEM(P-256) / HKDF-SHA256 / AES-256-GCM, v4/v5, enc 65 B | HPKE KEM 0x647A X-Wing (KyPost spec) | KyPost spec: device keystores have no ML-KEM (unverified). The CryptoKit X-Wing suite on 26.0 is unverified | A |
 | 66 | ky-primitives sealer; ky-server-base; dashboard (private) | AES-256-GCM at rest (KyRecovery token sealer, deployment key, TOTP secret) | `ky-primitives:recoveryclient/sealer.go:27-55 @ 871828c`; `ky-server-base:internal/crypto/crypto.go:27-65 @ eceb24e`; (private dashboard repo) | AES-256-GCM, 32-byte keys | no change | none | — |
 | 67 | KyIdentity | AES-256-GCM at rest: `v2:` row secrets, KyRecovery pin, zero-knowledge keyring wrappers and app subkeys (client-side) | `KyIdentity-server:internal/crypto/crypto.go:109-113,136-200 @ 6e7df38`; `web/src/keyringCrypto.ts:14,52-73,94-102` | AES-256-GCM under HMAC/HKDF subkeys. Keyring: HKDF zero salt → AES-256-GCM | no change | none | — |
@@ -364,7 +369,7 @@ Each has a recommendation.
    to WASM: one implementation and the same vectors, already proven by KyRecovery's ceremony, but a bundle of
    several MB, lazily loaded. (b) A JS library: `@noble/post-quantum`, which openpgp.js v7 uses, or an `@hpke`
    X-Wing package (neither audited by us). **Recommend (a)** for KyIdentity, KyNotes and KyMessages. KyPost's
-   OpenPGP stays on openpgp.js (spec A Q5).
+   OpenPGP uses gopenpgp WebAssembly (spec A Q5).
 4. **KyNotes sender authentication.** X-Wing has no HPKE auth mode, so the team envelopes' sender proof must become
    a signature over the envelope (Ed25519 now, hybrid in W2), and every member re-keys once. **Recommend yes.**
 5. **KyIdentity signing-key rotation.** Dual-publishing needs a multi-key JWKS. The docs today say never to replace
@@ -379,14 +384,12 @@ Each has a recommendation.
 8. **Push payloads.** RFC 8291 has no PQ variant. **Recommend:** confirm every push payload carries only a "fetch
    now" hint, never a secret or message content, so the classical encryption protects nothing long-lived. An inner
    X-Wing layer for KyAuth approvals (both ends ours) is possible, but not worth it if the payload holds no secret.
-9. **Hybrid-only TLS on Ky-to-Ky links** (kyguard broker, KyDNS replicas, KyPost hosted receiving, KyYard agents):
-   refuse a classical fallback where both ends are ours. **Recommend yes, in W0.**
-10. **Hosted cell links.** No WireGuard is designed. (a) Service-to-service mTLS with X25519MLKEM768 between cell
-    hosts, which is what the Go services already do. (b) WireGuard with Rosenpass. (c) Plain WireGuard (classical).
-    **Recommend (a).** If a WireGuard mesh is wanted for operations, (b) is required, not (c).
-11. **KyVault.** You ruled out a Ky password manager on 2026-11-15. KyVault's crypto is upstream Vaultwarden and
-    Bitwarden, and its image ships upstream's web vault. **Recommend: KyVault is out of scope for this plan**,
-    except the one-line rustls `aws-lc-rs` switch if it ships at all.
+9. **Hybrid-only TLS on Ky-to-Ky links.** Require hybrid where the suite owns both TLS endpoints. KyYard
+   agents keep hybrid preferred and classical fallback for older operator-managed reverse proxies.
+10. **Hosted cell links.** Use service-to-service hybrid mTLS and the strict WireGuard mesh in "Cell links".
+    The private infrastructure repository owns the mesh and bootstrap.
+11. **KyVault.** The backend uses rustls `aws-lc-rs` for hybrid TLS. Vault item cryptography still follows
+    upstream Vaultwarden and Bitwarden. Trivy CI fails on HIGH and CRITICAL findings.
 12. **KyAuth on iOS 17-25.** Apple's PQ TLS needs iOS 26 (unverified). **Recommend: keep iOS 17 as the minimum.**
     Push approvals are signed and short-lived, and the device signing key is not exposed by classical TLS.
 13. **Sign backup capsule manifests.** This is new behaviour, not a migration. **Recommend yes, in W2**, with a
