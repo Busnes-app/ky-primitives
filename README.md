@@ -62,6 +62,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`pqtls`](docs/STRONG-CRYPTO.md#hybrid-post-quantum-tls-key-exchange-pqtls) | Pins Ky-to-Ky TLS links to the hybrid X25519MLKEM768 key exchange and proves it in handshake tests. |
 | [`netallow`](docs/NETWORK.md#netallow) | The office-network allowlist that exempts requests from per-IP rate limits. |
 | [`applysetup`](docs/INSTALLER-SETUP.md#applysetup) | Container-local installer bundle decoding, refusals, and staged preparation. |
+| [`hybridsig`](docs/HYBRIDSIG.md#hybridsig) | ML-DSA-65 + Ed25519 signatures, both required, in a Ky-internal format (Go 1.27); also built for browsers as `cmd/pqwasm`. |
 
 ## offsite nested module
 

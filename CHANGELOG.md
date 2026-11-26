@@ -23,6 +23,11 @@ Keep unpublished changes separate from tagged releases.
   Shared vectors in `xwing/testdata`; `cmd/pqwasm` builds it for browsers. Standard library
   only; `recoverykey` and capsules unchanged. Additive, no migration; see `docs/XWING.md`.
 
+- Root (minor): new `hybridsig` package (Go 1.27): ML-DSA-65 + Ed25519 signatures, both must
+  verify, over SHA-256(label ‖ 0x00 ‖ msg), lifted from kyguard. Alg-tagged key, signature and
+  key-ID encodings; Ky-internal, not an X.509/JOSE composite. Shared vectors in
+  `hybridsig/testdata`; `cmd/pqwasm` builds it for browsers. Standard library only; additive.
+
 - Root (minor): `s3.PutIfMatch` adds signed conditional replacement with a strong opaque
   quoted ETag and typed `ErrPrecondition` on HTTP 412; `Object.ETag` exposes provider
   metadata. No retries/fallback, dependency or migration. Product erasure protocols and

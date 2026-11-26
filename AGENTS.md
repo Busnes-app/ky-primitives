@@ -36,6 +36,8 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
 - `oidcverify.VerifyLogout` returns logout-only claims. Share signature/JWKS verification
   with authentication while retaining separate purpose checks; logout tokens must fail
   `Verify`, `VerifyWithNonce`, and `Middleware`.
+- `hybridsig` keeps kyguard's construction and its tagged encodings; `hybridsig/testdata/vectors.json`
+  is a cross-language contract. A new algorithm gets a new tag, never a reinterpreted one.
 - `recoveryclient.LoadRecoveryKey` validates retained custodian topology at the persistence-read boundary (`2 <= k <= n <= 255`) without repairing missing or corrupt pins/settings.
 - `suitedir` follows KyIdentity-server `docs/SUITE-DIRECTORY.md`. It validates at the
   boundary: invalid apps and people without a sub or email are dropped, a peer needs an HTTPS URL and a 32-byte secret;
