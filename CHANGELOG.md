@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): new `pqtls` package. `HybridOnly` pins a `tls.Config` to TLS 1.3 with
+  only X25519MLKEM768 for Ky-to-Ky links; `RequireHybrid` asserts the negotiated group in
+  handshake tests. Standard library only; additive, no migration. Default configurations
+  are unchanged; see `docs/STRONG-CRYPTO.md`.
+
 - Root (minor): new `xwing` package: X-Wing keypair and HPKE base-mode `Seal`/`Open` (KEM
   0x647A, HKDF-SHA256, AES-256-GCM), wire `0x01 ‖ enc ‖ ct`, caller label required in `info`.
   Shared vectors in `xwing/testdata`; `cmd/pqwasm` builds it for browsers. Standard library
