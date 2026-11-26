@@ -1,7 +1,6 @@
 # Ky stack post-quantum migration, plan
 
-Date: 2026-11-25. Status: **approved in part** (see "Owner answers"). Q1, Q2, Q5, Q10 and Q11 are still open.
-Nothing is built yet. Owner request (2026-11-25): "I would like to see the whole stack migrated to PQC." KyPost goes first, in
+Date: 2026-11-25. Status: **approved** (see "Owner answers"). W0, the cell mesh and the KyVault evaluation are being built. Owner request (2026-11-25): "I would like to see the whole stack migrated to PQC." KyPost goes first, in
 its own spec (**A**: `KyPost-Server/docs/superpowers/specs/2026-11-25-pqc-openpgp-v6-design.md`, PR
 Busnes-app/KyPost-Server#743). This plan covers every other place the suite does key exchange, encryption to a
 public key, or signatures, and sets the order.
@@ -11,9 +10,19 @@ public key, or signatures, and sets the order.
 - **Approved as recommended:** Q3 (browser PQ code as ky-primitives Go WASM), Q4, Q6, Q8, Q9, Q12, Q13, Q14.
 - **Q7: no custom crypto, agreed.** KyMessages waits for upstream PQ Olm or MLS. Meanwhile everything around Olm
   becomes PQ.
-- **Q10: explore a WireGuard mesh.** Explored in "Cell links" below; decisions 10a-10e are open.
-- **Asked for explanation, pending:** Q1 (is W0 needed), Q2 (security level), Q5 (which third parties), Q11
-  (KyVault).
+- **Q10: explore a WireGuard mesh.** Explored in "Cell links" below; decided in the second round.
+- **Second round (2026-11-25, later):**
+  - **Q1 approved:** build and test W0. KyGuard's SSH connector rejects SHA-1 key exchange, and its broker
+    listener goes hybrid-only. Both were handed to the KyGuard thread.
+  - **Q2 approved:** category 3 for now.
+  - **Q5 approved:** Ky relying parties get ML-DSA-65 tokens; third parties keep RS256. The third parties are
+    admin-added OIDC apps, Himmelblau and XCreds workstation sign-in, and Vaultwarden SSO.
+  - **KyMessages:** the Matrix-based KyMessage-Server is deprecated; KyMessages-Native is the chat client. Its
+    rows below are marked deprecated. Native still uses vodozemac Olm/Megolm, so Q7 stands for it.
+  - **Q11:** a worker evaluates swapping KyVault's crypto. If no swap is worthwhile, it switches rustls to the
+    `aws-lc-rs` provider for hybrid TLS.
+  - **Q10a-e decided:** mTLS plus a mesh; strict; built in a private infra repo, never shipped to third parties;
+    monthly rotation plus rotation on every host change; alerts as recommended.
 - **Spec A answers that touch this plan:**
   - Users' stored mail is re-encrypted to v6 (A P6).
   - The browser pins an openpgp.js v7 commit and falls back to gopenpgp compiled to WASM. A Node 26 spike of
@@ -278,9 +287,9 @@ working table, so cross-references stay valid.
 | 45 | KyAuth-android, KyPost-for-Android; KyAuth-iOS, KyPost-for-Mac, kydrive-desktop | APK/AAB signing; Apple codesign, notarization, ASC API key | `KyPost-for-Android:.github/workflows/release.yml:138-151 @ 01f304bb`; `KyPost-for-Mac:.github/workflows/release.yml:114-120,328-348 @ 165148e` | apksigner (keystore algorithm in secrets, unverified). Play App Signing re-signs. Apple Developer ID certs (algorithm unverified), ES256 ASC key | upstream | upstream: Google APK Signature Scheme and Apple code signing | W2 |
 | 46 | ky-primitives (Go module consumers) | Module integrity | `ky-primitives:docs/VERIFYING-RELEASES.md:5-27 @ 871828c` | Unsigned git tags. sum.golang.org (note algorithm unverified) | upstream | upstream Go sumdb | W2 |
 | 47 | KyMessages-Native (vodozemac 0.11.2 WASM); KyMessage-Server (Element v1.12.30 → vodozemac 0.10.0; notes bot → 0.11.2) | Olm pairwise setup, device/OTK keys, Megolm room keys and signatures | `KyMessages-Native:web/crypto/src/lib.rs:56-139,226-260 @ 9202576`; `internal/api/e2ee_handlers.go:42,46,58`; `KyMessage-Server:docker-compose.matrix.yml:222 @ 439babc` | Olm: triple Curve25519 DH plus Double Ratchet. Ed25519 device and Megolm signatures. Recording Olm traffic exposes every room key | PQXDH-style hybrid Olm when vodozemac ships it. Alternative: an in-repo X-Wing layer in Native `web/crypto` (owner call). The Native E3 master key spec should name ML-DSA-65+Ed25519 now | upstream vodozemac: PR #120 PQXDH on hold (2026-06-04); no PQ in 0.11.2; no Matrix MSC found | W3 |
-| 48 | KyMessage-Server (Element, upstream) | Server-side key backup `m.megolm_backup.v1.curve25519-aes-sha2` | spec URL in inventory; ciphertext lands in Synapse DB dumps inside capsules | Ephemeral Curve25519 to the backup public key | upstream Matrix | Matrix spec and upstream | W3 |
-| 49 | KyMessage-Server | Cross-signing, SAS verification, Synapse federation signing key, MAS signing keys, MAS upstream OIDC | `KyMessage-Server:internal/matrixinit/matrixinit.go:278-279,350,584-591,611-655 @ 439babc`; `templates/mas.yaml.tmpl:55-64` | Ed25519 (cross-signing, federation X-Matrix), SAS curve25519-hkdf, MAS RSA-2048/P-256, RS256 from KyIdentity | upstream. MAS keeps RS256 from KyIdentity | upstream Synapse/MAS/Matrix spec | W3 |
-| 50 | KyMessage-Server (Synapse) | Federation and pusher outbound TLS | `KyMessage-Server:internal/matrixinit/templates/homeserver.yaml.tmpl:9,39-41 @ 439babc` | OpenSSL 3.5.x in the image (per prior report). Groups in Synapse context unverified. Federation is closed by default | X25519MLKEM768 if Synapse/Twisted uses OpenSSL defaults (verify) | peer: federation homeservers and push gateways | W3 |
+| 48 | KyMessage-Server (Element, upstream) | Server-side key backup `m.megolm_backup.v1.curve25519-aes-sha2` | spec URL in inventory; ciphertext lands in Synapse DB dumps inside capsules | Ephemeral Curve25519 to the backup public key | upstream Matrix | Matrix spec and upstream | deprecated (KyMessage-Server) |
+| 49 | KyMessage-Server | Cross-signing, SAS verification, Synapse federation signing key, MAS signing keys, MAS upstream OIDC | `KyMessage-Server:internal/matrixinit/matrixinit.go:278-279,350,584-591,611-655 @ 439babc`; `templates/mas.yaml.tmpl:55-64` | Ed25519 (cross-signing, federation X-Matrix), SAS curve25519-hkdf, MAS RSA-2048/P-256, RS256 from KyIdentity | upstream. MAS keeps RS256 from KyIdentity | upstream Synapse/MAS/Matrix spec | deprecated (KyMessage-Server) |
+| 50 | KyMessage-Server (Synapse) | Federation and pusher outbound TLS | `KyMessage-Server:internal/matrixinit/templates/homeserver.yaml.tmpl:9,39-41 @ 439babc` | OpenSSL 3.5.x in the image (per prior report). Groups in Synapse context unverified. Federation is closed by default | X25519MLKEM768 if Synapse/Twisted uses OpenSSL defaults (verify) | peer: federation homeservers and push gateways | deprecated (KyMessage-Server) |
 | 51 | KyMessages-Native (P2P/SFU), KyMessage-Server (LiveKit v1.13.7), private infra repo | WebRTC DTLS-SRTP and TURN/TLS | `KyMessages-Native:web/src/rtc/hybridCall.ts:863 @ 9202576`; `KyMessage-Server:docker-compose.matrix.yml:243 @ 439babc`; (private infra repo) | DTLS 1.2 ECDHE (browser and Pion). SFU sees media until E6. TURN-TLS groups unverified | Media confidentiality via E6/MatrixRTC frame E2EE, with keys sent over a PQ channel (#22, #47). DTLS PQ: upstream | browsers and Pion: no PQ DTLS (unverified) | W3 |
 | 52 | KyIdentity (+ ubuntupush), KyAuth-android, KyAuth-iOS, KyAuth-Linux, KyMessages-Native, KyPost-Server, KyPost-for-Android, KyPost-for-Linux | Web Push / UnifiedPush payload encryption (RFC 8291) | `KyIdentity-server:internal/mfa/push_ubuntupush.go:119-180 @ 6e7df38`; `KyMessages-Native:internal/push/crypto.go:51-65 @ 9202576`; `KyPost-Server:backend/internal/processor/native_sender.go:418-427 @ 928ba0be` | Ephemeral P-256 ECDH + HKDF + AES-128-GCM (aes128gcm) | none: no standard (no PQ RFC 8291 draft found, unverified). For KyAuth (both ends ours, via relays), an inner X-Wing layer is possible (owner call). Minimise payloads | standard missing; browser push services | W3 |
 | 53 | KyIdentity, KyMessages-Native, KyNotes, KyPost-Server | VAPID sender authentication (RFC 8292) | `KyIdentity-server:internal/mfa/push_unifiedpush.go:98-139 @ 6e7df38`; `KyMessages-Native:internal/push/vapid.go:21-35 @ 9202576`; `KyNotes-server:internal/webpush/webpush.go:65-76 @ 88c85c8`; `KyPost-Server:backend/internal/config/config.go:886-905 @ 928ba0be` | ES256 (P-256) | none: no standard | standard missing; push services | W3 |
