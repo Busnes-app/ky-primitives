@@ -3,7 +3,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15936/badge)](https://www.bestpractices.dev/projects/15936)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Busnes-app/ky-primitives/badge)](https://scorecard.dev/viewer/?uri=github.com/Busnes-app/ky-primitives)
 
-Shared security primitives for the Busness.app suite.
+Shared security primitives for the Busnes.app suite.
 
 The `offsite/` directory is a separately versioned nested module. Its transport
 dependencies are not requirements of this root module.
@@ -61,6 +61,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`s3`](docs/S3.md) | Shared signed HTTPS object/version client; products own storage policy. |
 | [`pqtls`](docs/STRONG-CRYPTO.md#hybrid-post-quantum-tls-key-exchange-pqtls) | Pins Ky-to-Ky TLS links to the hybrid X25519MLKEM768 key exchange and proves it in handshake tests. |
 | [`netallow`](docs/NETWORK.md#netallow) | The office-network allowlist that exempts requests from per-IP rate limits. |
+| [`applysetup`](docs/INSTALLER-SETUP.md#applysetup) | Container-local installer bundle decoding, refusals, and staged preparation. |
 
 ## offsite nested module
 
@@ -84,16 +85,15 @@ Consumers install that release with
 
 ## Contributing
 
-Nothing in this repository builds its consumers. The check that does lives in each of them:
-`.github/workflows/ky-primitives-compat.yml` in `gridlock-server`, `kybookmarks-server` and
-`kypassword-server` builds and tests that consumer against this module's default branch
-instead of the version it pins. It runs on a daily schedule and on `workflow_dispatch`, not
-on pull requests -- in either repository.
+Nothing in this repository builds its consumers. Instead, consumer repositories run
+`.github/workflows/ky-primitives-compat.yml` to build and test against this module's
+default branch rather than their pinned version. It runs on a daily schedule and on
+`workflow_dispatch`, not on pull requests — in either repository.
 
-It lives there rather than here because the dependency only points one way without a
-credential. A consumer, public or private, can read this repository anonymously; reaching a
-private consumer from here needed an organisation token, which is why the job that used to
-do it never ran.
+It lives in each consumer rather than here because the dependency only points one way
+without a credential. A consumer, public or private, can read this repository anonymously;
+reaching a private consumer from here needed an organisation token, which is why the job
+that used to do it never ran.
 
 **The cost is immediacy.** A change that breaks a consumer will not fail your pull request.
 It will fail in that consumer's scheduled run, up to a day later, in a repository you may not
@@ -102,8 +102,9 @@ making a change you expect to break a consumer, do not wait for the schedule: op
 consumer's PR alongside yours and run its compatibility workflow by hand from the Actions tab
 once this change is on `master`.
 
-The other six suite repositories do not import this module and have no such workflow; adding
-one is a copy of the file with the cron minute changed.
+Suite repositories that adopt `ky-primitives` without a compatibility workflow yet can copy
+`.github/workflows/ky-primitives-compat.yml` from an existing consumer with the cron minute
+changed.
 
 ## License
 
@@ -118,8 +119,9 @@ ky-primitives is released under the [MIT License](LICENSE.txt).
 - [Audit chain, logging and health](docs/AUDIT-AND-LOGGING.md) — the tamper-evident audit chain, JSON logging and the `/healthz` shape. <a id="auditchain"></a><a id="logging"></a><a id="health"></a>
 - [Passwords, TOTP, key files and derivation](docs/CREDENTIALS.md) — Argon2id password hashing, TOTP, key-file loading and client-side login-secret derivation. <a id="password"></a><a id="totp"></a><a id="keyfile"></a><a id="derive"></a>
 - [Sync signing, OIDC, SCIM and suite directory](docs/IDENTITY.md) — directory-sync signatures, OIDC token verification and back-channel logout, the SCIM client and the suite directory client. <a id="syncauth"></a><a id="oidcverify"></a><a id="back-channel-logout"></a><a id="scim"></a><a id="suitedir"></a>
+- [Shared S3 client](docs/S3.md) — signed HTTPS object/version transport; products own storage policy. <a id="s3"></a>
 - [Network allowlist](docs/NETWORK.md) — the office CIDR list exempt from per-IP rate limits. <a id="netallow"></a>
-- [Container-local installer setup](docs/INSTALLER-SETUP.md) — `applysetup` bundle decoding, refusals and staged preparation. <a id="container-local-installer-setup"></a>
+- [Container-local installer setup](docs/INSTALLER-SETUP.md) — `applysetup` bundle decoding, refusals and staged preparation. <a id="container-local-installer-setup"></a><a id="applysetup"></a>
 - [offsite](offsite/README.md) — the nested module that copies backups to SFTP, S3 or SMB destinations.
 - [Logging policy](logging/LOGGING.md) — the JSON log format every Ky product emits.
 - [Strong cryptography](docs/STRONG-CRYPTO.md) — the supported key and TLS configuration.

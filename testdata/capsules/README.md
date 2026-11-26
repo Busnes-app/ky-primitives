@@ -1,5 +1,7 @@
 # Capsule fixtures
 
+[Overview](../../README.md) · [Backup container and recovery key](../../docs/CAPSULE.md#fixtures)
+
 A capsule written by this package, with the recovery seed that opens it:
 
 | File | Container |
@@ -22,8 +24,9 @@ authenticated its manifest and still handed the caller a raw key to protect and 
 capsule. It is kept so that `Open`'s refusal is measured against a real container. Its key
 is not kept; nothing reads it.
 
-`kysignon.kycap` (`kycap/1`) and `kyrecovery.kycap` (a tar of `manifest.json`, `nonce.bin`
-and `payload.enc`) were real output from `kysignon-server` and `kyrecovery-server`. Both
-authenticated their ciphertext and left the manifest outside the AEAD, so `capsule_id`,
-`service_name`, `threshold`, `total_shares` and the verification recipe could be rewritten
-by anyone who could reach the file. Neither server needs its old capsules read.
+Earlier fixtures (`kysignon.kycap` for `kycap/1` and `kyrecovery.kycap`, a tar of
+`manifest.json`, `nonce.bin` and `payload.enc`) were real output from `kysignon-server`
+and `kyrecovery-server` and are no longer retained. Both authenticated their ciphertext
+and left the manifest outside the AEAD, so `capsule_id`, `service_name`, `threshold`,
+`total_shares` and the verification recipe could be rewritten by anyone who could reach
+the file. Neither server needs its old capsules read.
