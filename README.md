@@ -43,6 +43,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | --- | --- |
 | [`capsule`](docs/CAPSULE.md#capsule) | Reads and writes the suite's encrypted backup container. |
 | [`recoverykey`](docs/CAPSULE.md#recoverykey) | The suite's recovery keypair; its private key exists only while it is split into shares or combined for a restore. |
+| [`xwing`](docs/XWING.md#xwing) | Seals a message to an X-Wing (ML-KEM-768 + X25519) public key with HPKE, and opens it; also built for browsers as `cmd/pqwasm`. |
 | [`shamir`](docs/RECOVERY.md#shamir) | Splits a secret into custodian shares and reconstructs it. |
 | [`recoverycode`](docs/RECOVERY.md#recoverycode) | One-time codes that bypass every other factor, so their strength is the account's strength. |
 | [`recoveryclient`](docs/RECOVERY.md#recoveryclient) | The product side of the suite's backup contract with KyRecovery. |

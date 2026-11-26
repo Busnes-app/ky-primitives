@@ -85,6 +85,7 @@ fails a refusal test.
 | Boundary | Supported configuration and enforcement |
 |---|---|
 | Capsule/recovery key | Keep the fixed X-Wing, HKDF-SHA256 and AES-256-GCM suite. Generate the suite key through `recoverykey`; products hold only its public key. Preserve custodian thresholds, key pins and historical restore formats. |
+| Sealed messages | Use `xwing` for any new key wrap or envelope: X-Wing, HKDF-SHA256 and AES-256-GCM, version 1 only, no negotiation. Give every caller its own `info` label; `Seal`/`Open` refuse an empty one. Any changed byte, label or AAD fails closed. |
 | TOTP | `totp.GenerateSecret` produces 20 random bytes. `Code`/`Validate` refuse decoded secrets below 16 bytes for all supported HMAC choices. Preserve weak legacy records and require issuer re-enrolment; never pad or rewrite a secret. |
 | Stored symmetric keys | `keyfile` creation/loading/storing has a 16-byte floor and loads exactly the caller's declared size. Use 32 random bytes for application encryption and audit keys; `auditchain` itself requires 32 bytes. Do not replace an unreadable retained key. |
 | Directory-sync HMAC | Use an independently generated 32-byte secret. `syncauth` signing and verification refuse fewer than 16 bytes. Length checks do not prove a hand-written string has enough entropy. |

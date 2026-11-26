@@ -18,6 +18,11 @@ Keep unpublished changes separate from tagged releases.
   handshake tests. Standard library only; additive, no migration. Default configurations
   are unchanged; see `docs/STRONG-CRYPTO.md`.
 
+- Root (minor): new `xwing` package: X-Wing keypair and HPKE base-mode `Seal`/`Open` (KEM
+  0x647A, HKDF-SHA256, AES-256-GCM), wire `0x01 ‖ enc ‖ ct`, caller label required in `info`.
+  Shared vectors in `xwing/testdata`; `cmd/pqwasm` builds it for browsers. Standard library
+  only; `recoverykey` and capsules unchanged. Additive, no migration; see `docs/XWING.md`.
+
 - Root (minor): `s3.PutIfMatch` adds signed conditional replacement with a strong opaque
   quoted ETag and typed `ErrPrecondition` on HTTP 412; `Object.ETag` exposes provider
   metadata. No retries/fallback, dependency or migration. Product erasure protocols and
