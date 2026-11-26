@@ -192,6 +192,29 @@ small PR:
   - apksigner and Apple codesign (upstream).
   - No SSH deploy keys, sops, age or sealed-secrets anywhere.
 
+## KyMessages-Native E3 and E5 (built PQ from the start)
+
+These phases (`KyMessages-Native:docs/superpowers/specs/2026-11-22-e2ee-design.md` §3, §5, §10) are new formats, so
+they start PQ instead of migrating later. Olm and Megolm stay vodozemac's (Q7: no custom crypto around them). They
+use ky-primitives `xwing` and `hybridsig` (being built, W1.1 and W2.1): Go on the server, and the same Go compiled
+to WASM in the browser (Q3). If the KyMessages worker prefers RustCrypto inside `web/crypto`, it must pass the
+ky-primitives test vectors, and the switch away from Q3's single implementation needs owner approval.
+
+| Item | Use | Why |
+|---|---|---|
+| Recovery key | 256-bit random secret, symmetric only. Per-purpose subkeys via HKDF-SHA256 with labels (`kymessages.recovery.v1/backup-key`, `/master-key`). Wraps are AES-256-GCM with the version and label in the AAD | Symmetric 256-bit is PQ-adequate. No public-key step |
+| Key backup | **An X-Wing backup keypair.** The public key (1216 B) is published, signed by the master key (hybrid). Any verified device seals each Megolm session to it with `xwing.Seal` (info `kymessages.backup.v1`, AAD = room ID ‖ session ID). The backup private key is stored only wrapped under the recovery key | Devices add keys without holding the recovery key, as Matrix's `curve25519` backup does, but without its HNDL exposure (plan row 48) |
+| User master key | **`hybridsig` ML-DSA-65 + Ed25519, both must verify**, from day one. It signs devices, bots and the backup public key. Signed strings move to `kymessages.device.v2` and include the `alg` tag | It is long-lived pinned trust (TOFU). Changing it later would raise "identity changed" in every shared room for every user |
+| Device identity | vodozemac Curve25519/Ed25519, unchanged (upstream). The master key's signature over the device is hybrid | Olm needs vodozemac's keys |
+| Fingerprints, TOFU, QR | SHA-256 over a domain label plus the full hybrid master public key. QR codes carry fingerprints and secrets, never ML-DSA public keys (1952 B; too large for a QR code) | Fits a QR code; binds the full hybrid key |
+| Device verification and secret transfer | Two layers. The QR from the verified device carries a one-time 256-bit secret `s` and the master fingerprint. The new device sends an ephemeral X-Wing public key over the server. The verified device encrypts the master key and backup key under HKDF(`s`) with AES-256-GCM, then `xwing.Seal`s that to the ephemeral key. One-time, short TTL, confirmed on both screens | `s` never reaches the server, so the transfer is PQ even if X-Wing were broken. The X-Wing layer protects against a photographed QR combined with a copy of server traffic. Never classical X25519 |
+| Attachments and thumbnails (E5) | AES-256-GCM per file, with a **separate random key for each file and each thumbnail**; SHA-256 of the ciphertext inside the encrypted message. Metadata carries `v` and `alg` (`A256GCM`); AAD = `kymessages.attachment.v1` ‖ kind (`file`, `thumb`). The server-side S3 seal stays as is (a second, symmetric layer) | Symmetric and hash-based: already PQ-adequate (AES-256: ~128-bit against Grover; SHA-256 collision and preimage margins hold). Versioning is what avoids a later migration. If files can exceed what one AES-GCM call should hold in memory, choose a chunked (STREAM) format now rather than later |
+| Guest call key (E6) | `xwing.Seal` to the guest's ephemeral key, not X25519 (row 22) | Specify it PQ before it is built |
+
+Residual, stated plainly: room keys still travel between devices over Olm, which is classical. Recorded
+to-device ciphertext (server mailbox rows and their backups) is harvest-now-decrypt-later exposed until vodozemac
+ships PQ. Delete to-device rows on acknowledgement so the window stays short.
+
 ## Cell links (owner Q10: explore a WireGuard mesh)
 
 Research is in `2026-11-25-pqc-wireguard-mesh-research.md`. Read from primary sources; nothing was built or run.
