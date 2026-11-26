@@ -31,6 +31,8 @@ Shared security primitives for the Ky suite. Package contracts and usage live in
   Keep the two version streams and unpublished source changes separate.
 - `applysetup` owns shared installer boundaries and opt-in immutable Linux metadata
   staging; products retain envelope validation, credential generation and native setup.
+- `xwing` wire format (`0x01 ‖ enc ‖ ct`) and `xwing/testdata/vectors.json` are a cross-language
+  contract: change them only with a new version byte, and keep `recoverykey` byte-identical.
 - `oidcverify.VerifyLogout` returns logout-only claims. Share signature/JWKS verification
   with authentication while retaining separate purpose checks; logout tokens must fail
   `Verify`, `VerifyWithNonce`, and `Middleware`.
