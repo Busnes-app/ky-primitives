@@ -13,6 +13,11 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+- Root (minor): new `pqtls` package. `HybridOnly` pins a `tls.Config` to TLS 1.3 with
+  only X25519MLKEM768 for Ky-to-Ky links; `RequireHybrid` asserts the negotiated group in
+  handshake tests. Standard library only; additive, no migration. Default configurations
+  are unchanged; see `docs/STRONG-CRYPTO.md`.
+
 - Root (minor): `s3.PutIfMatch` adds signed conditional replacement with a strong opaque
   quoted ETag and typed `ErrPrecondition` on HTTP 412; `Object.ETag` exposes provider
   metadata. No retries/fallback, dependency or migration. Product erasure protocols and
