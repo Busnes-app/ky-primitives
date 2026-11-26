@@ -2,7 +2,7 @@
 
 [Overview](../README.md) · [Assurance case](ASSURANCE-CASE.md) · [Contributing](../CONTRIBUTING.md)
 
-## Container-local installer setup
+## applysetup
 
 `applysetup` provides strict private-file bundle decoding, file-referenced credentials,
 common SSO/identity/backup inputs, capability discovery and bounded report shapes.

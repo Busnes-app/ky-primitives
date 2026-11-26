@@ -1,6 +1,6 @@
 # Hybrid signatures
 
-[Overview](../README.md) · [Strong cryptography](STRONG-CRYPTO.md)
+[Overview](../README.md) · [Assurance case](ASSURANCE-CASE.md) · [Contributing](../CONTRIBUTING.md) · [Strong cryptography](STRONG-CRYPTO.md)
 
 ## hybridsig
 

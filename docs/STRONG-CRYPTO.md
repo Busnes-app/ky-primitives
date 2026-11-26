@@ -53,11 +53,39 @@ and X-Wing recovery remain part of the library's design. Enabling a TLS policy
 does not turn the whole library or an embedding application into a validated
 FIPS application.
 
+## Hybrid post-quantum TLS key exchange (`pqtls`)
+
+Go 1.24 and later offer the hybrid X25519MLKEM768 key exchange (ML-KEM-768 with
+X25519, RFC 10024) first by default, and it stays first under `fips140=on`, which
+drops only plain X25519. Do not set `GODEBUG=tlsmlkem=0` or `tlssecpmlkem=0`, and
+do not narrow `tls.Config.CurvePreferences` except as below. The default still
+falls back to a classical group when the peer does not offer the hybrid.
+
+Where both ends of a link are Ky code, remove that fallback on both ends:
+
+```go
+cfg := pqtls.HybridOnly(&tls.Config{ /* certificates, roots, client auth */ })
+```
+
+`HybridOnly` sets TLS 1.3 as the minimum and X25519MLKEM768 as the only key
+exchange, so a TLS 1.2, classical-only or older peer is refused rather than
+downgraded. Do not use it toward browsers, reverse proxies, databases or other
+third-party peers. Prove each link in its own handshake test with
+`pqtls.RequireHybrid(t, conn.ConnectionState())`, which fails unless the
+completed handshake negotiated X25519MLKEM768.
+
+`pqtls`'s tests run real loopback handshakes in both CI invocations (with and
+without `GODEBUG=fips140=on`): default client and server configurations
+negotiate the hybrid, and a `HybridOnly` end refuses an X25519-only, P-256-only,
+TLS 1.2 or TLS 1.2 RSA-key-exchange peer. Removing either line of `HybridOnly`
+fails a refusal test.
+
 ## Keys and enabled transports
 
 | Boundary | Supported configuration and enforcement |
 |---|---|
 | Capsule/recovery key | Keep the fixed X-Wing, HKDF-SHA256 and AES-256-GCM suite. Generate the suite key through `recoverykey`; products hold only its public key. Preserve custodian thresholds, key pins and historical restore formats. |
+| Sealed messages | Use `xwing` for any new key wrap or envelope: X-Wing, HKDF-SHA256 and AES-256-GCM, version 1 only, no negotiation. Give every caller its own `info` label; `Seal`/`Open` refuse an empty one. Any changed byte, label or AAD fails closed. |
 | TOTP | `totp.GenerateSecret` produces 20 random bytes. `Code`/`Validate` refuse decoded secrets below 16 bytes for all supported HMAC choices. Preserve weak legacy records and require issuer re-enrolment; never pad or rewrite a secret. |
 | Stored symmetric keys | `keyfile` creation/loading/storing has a 16-byte floor and loads exactly the caller's declared size. Use 32 random bytes for application encryption and audit keys; `auditchain` itself requires 32 bytes. Do not replace an unreadable retained key. |
 | Directory-sync HMAC | Use an independently generated 32-byte secret. `syncauth` signing and verification refuse fewer than 16 bytes. Length checks do not prove a hand-written string has enough entropy. |

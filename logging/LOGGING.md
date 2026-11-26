@@ -1,11 +1,13 @@
 # Logging policy
 
+[Overview](../README.md) · [Audit chain, logging and health](../docs/AUDIT-AND-LOGGING.md#logging)
+
 Every Ky product must emit JSON lines on stderr and nothing else. A collector agent ships
 them to the central log server. No product may open a socket to ship logs, and no product
 may write application logs to a file from inside the process. This package is what makes
-the policy enforceable, not evidence that it is followed: migrating the nine products onto
-it is separate work, and today none of them have. See the `## logging` section of [docs/AUDIT-AND-LOGGING.md](../docs/AUDIT-AND-LOGGING.md#logging)
-for what they do instead.
+the policy enforceable; migrating each product onto it is tracked per repository. See
+[docs/AUDIT-AND-LOGGING.md](../docs/AUDIT-AND-LOGGING.md#logging) for the package contract
+and legacy behaviour it replaces.
 
 ## What may appear on a line
 
