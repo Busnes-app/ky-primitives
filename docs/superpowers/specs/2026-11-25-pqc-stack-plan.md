@@ -32,6 +32,19 @@ public key, or signatures, and sets the order.
   - **Q11, KyVault.** The rustls `aws-lc-rs` switch landed. Trivy CI must fail on HIGH and CRITICAL findings
     and upload SARIF after a failed scan. The approved exceptions cover three already-fixed findings on
     Vaultwarden's `1.0.0` placeholder Cargo package. [KyVault-backend #6](https://github.com/Busnes-app/KyVault-backend/pull/6)
+- **Owner decisions (2026-11-26, pass 2).**
+  - **`ky-primitives v0.11.0`.** Release tag approved once the changelog preparation PR merges.
+  - **Q4B, cross-cell KyPost MH10 MX-to-replica links.** Enforce both `pqtls.HybridOnly` + `ML-DSA-65`
+    pinned mTLS and cross-cell WireGuard PSK tunnels managed by the private infrastructure repository
+    (Option B).
+  - **`KyVault-backend` multi-tenant gate.** Add a release-build multi-tenant refusal gate until
+    `export_only` and the `KyVault-web` tenancy UI ship.
+  - **`KyPost-Server` `relayCodes`.** Use a `kye2e`-only test `relayCodes` table while keeping production
+    `relayCodes` empty until launch cells are finalized.
+  - **`KyIdentity-server` restore.** Keep the approved spec rollback behavior (no restore-time org
+    suspension).
+  - **Native clients for SaaS launch.** Native clients beyond `kydrive-desktop` do not need
+    multi-account/`org_id` for SaaS launch.
 - **Spec A answers that touch this plan.** KyPost re-encrypts stored mail to v6 (P6). The browser will use
   gopenpgp WebAssembly for v4 and v6. Its P3–P6 PRs may merge on the normal current-head CI, security review
   and PR Reviewer Guide gates. The phase dependencies and rollout gates still apply.
@@ -227,9 +240,12 @@ private infrastructure repository. The implementation was tested in disposable c
 and the systemd units still require verification on real hosts.
 
 **What a cell's hosts send each other.** HTTPS from the edge to the replicas, the PostgreSQL wire protocol (clients,
-PgBouncer, streaming replication), Ky-to-Ky mTLS (MX to receiving), operator SSH, and metrics. Nothing needs network
-connectivity between cells (KyPost multi-host spec `:67-72,599-615`; KyIdentity tenancy "Cells"). The provider's
-private networks are isolated but not encrypted, and its cloud firewalls cannot filter them.
+PgBouncer, streaming replication), Ky-to-Ky mTLS (MX to receiving), operator SSH, and metrics. Cells stay isolated
+for ordinary traffic (KyIdentity tenancy "Cells"), with one exception: the KyPost MH10 cross-cell MX-to-replica
+masked-relay link (`KyPost-Server:backend/internal/app/receiving_tls.go`). Per owner decision (2026-11-26, Q4B),
+cross-cell MX-to-replica links enforce both `pqtls.HybridOnly` + `ML-DSA-65` pinned mTLS and cross-cell WireGuard
+PSK tunnels managed by the private infrastructure repository. The provider's private networks are isolated but not
+encrypted, and its cloud firewalls cannot filter them.
 
 **WireGuard is classical on its own.** The handshake is X25519. Its only post-quantum hook is the optional 32-byte
 pre-shared key (PSK), which the whitepaper adds for exactly the record-now-decrypt-later case. A PSK delivered over a
@@ -252,7 +268,8 @@ existing pins and PostgreSQL `verify-full`. Track the upstream alternatives as t
 **Decisions for Q10:**
 
 - **10a. Mesh or not.** Use A plus B.
-- **10b. Strict or permissive.** Use strict mode inside a cell.
+- **10b. Strict or permissive.** Use strict mode inside a cell and on cross-cell KyPost MX-to-replica WireGuard
+  PSK tunnels (2026-11-26 Q4B).
 - **10c. Who manages it.** KyQuickStart is frozen against new orchestration features
   (`KyQuickStart:AGENTS.md:683-686`). The private infrastructure repository owns the hosted mesh.
   Self-hosters keep option A.

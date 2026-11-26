@@ -13,71 +13,73 @@ Keep unpublished changes separate from tagged releases.
 
 ## Unreleased source changes
 
+None.
+
+## Root module
+
+### [v0.11.0 — 2026-11-26](https://github.com/Busnes-app/ky-primitives/tree/v0.11.0)
+
+Based on v0.10.1. Adds post-quantum primitives (`pqtls`, `xwing`, `hybridsig`, and the
+`cmd/pqwasm` browser build), the standard-library `s3` object/version wire client,
+`suitedir` for KyIdentity's suite directory and multi-tenant feeds, `netallow` for
+office-network rate-limit allowlists, recovery split/reassembly and key re-pinning,
+sync replay/pending-delivery hardening, and refreshes `golang.org/x/crypto` to `v0.59.0`.
+The nested `offsite` module remains on its separate version stream (`offsite/v0.3.0`).
+
 - Root (minor): new `pqtls` package. `HybridOnly` pins a `tls.Config` to TLS 1.3 with
   only X25519MLKEM768 for Ky-to-Ky links; `RequireHybrid` asserts the negotiated group in
   handshake tests. Standard library only; additive, no migration. Default configurations
   are unchanged; see `docs/STRONG-CRYPTO.md`.
-
 - Root (minor): new `xwing` package: X-Wing keypair and HPKE base-mode `Seal`/`Open` (KEM
   0x647A, HKDF-SHA256, AES-256-GCM), wire `0x01 ‖ enc ‖ ct`, caller label required in `info`.
   Shared vectors in `xwing/testdata`; `cmd/pqwasm` builds it for browsers. Standard library
   only; `recoverykey` and capsules unchanged. Additive, no migration; see `docs/XWING.md`.
-
 - Root (minor): new `hybridsig` package (Go 1.27): ML-DSA-65 + Ed25519 signatures, both must
   verify, over SHA-256(label ‖ 0x00 ‖ msg), lifted from kyguard. Alg-tagged key, signature and
   key-ID encodings; Ky-internal, not an X.509/JOSE composite. Shared vectors in
   `hybridsig/testdata`; `cmd/pqwasm` builds it for browsers. Standard library only; additive.
-
 - Root (minor): `s3.PutIfMatch` adds signed conditional replacement with a strong opaque
   quoted ETag and typed `ErrPrecondition` on HTTP 412; `Object.ETag` exposes provider
   metadata. No retries/fallback, dependency or migration. Product erasure protocols and
   provider conditional-write qualification remain required; see `docs/S3.md`.
-
 - Root (minor): `s3.PutIfAbsent` adds signed create-exclusive PUT with typed
   `ErrAlreadyExists` on HTTP 412. `Object.LastModified` exposes GET/HEAD/list provider
   timestamps; zero means unknown age. Providers need atomic-write/metadata qualification;
   products retain store-ID/orphan policy. Additive API with no dependency or migration.
-
 - Root (minor): `s3` adds shared streaming HTTPS PUT/GET/HEAD/DELETE, paginated object and
   version/marker listings and resumable exact-key/namespace erasure. Standard library only;
   no root or offsite dependency change. Products retain sealing/cache/quota and provider
   replica/retention policy. Additive API, no migration, no automatic pruning; see `docs/S3.md`.
-
 - Root (minor): `suitedir.Client.ReportStorage` posts bounded usage/grant requests to
   KyIdentity, validating the whole answer and refusing redirects. Products retain reporting
   persistence and admission. Additive API; no migration or new dependency.
-
 - Root (minor): `suitedir.Client.Erased` reads a multi-tenant KyIdentity’s erased-subject
   feed in bounded pages. It returns the last validated revision and preserves the original
   checkpoint on error. Additive API, with no migration required.
-
 - Root (minor): home regions for multi-region suite apps (KyIdentity tenancy design, "Home
   region"). `suitedir.Org.HomeRegion` (`home_region`, a slug matching
   `^[a-z][a-z0-9-]{1,31}$`, never changing; `""` from an older KyIdentity, and a malformed one
   fails `Orgs`). `suitedir.Peer.Regions` maps regions to origins for a peer served per region,
   and `Peer.URLFor(region)` picks the org's origin, or reports none: it never falls back to
   `URL` for a regioned peer. A malformed or empty `regions` fails `Peer`. Additive.
-
 - Root (minor): `suitedir.OrgGroups(ctx, org)` lists one organisation's suite groups on a
   multi-tenant KyIdentity (`GET /api/suite/groups?org_id=`), validated as `Groups`. An empty
   org is refused without a request; an org KyIdentity does not list answers 404, returned as
   an ordinary status error. `Groups` is unchanged.
-
 - Root (minor): `suitedir.Orgs` calls a multi-tenant KyIdentity's `GET /api/suite/orgs`:
   `Org{ID, Status, Revision, Enabled, Quotas}` changed after a revision, following pages,
   with the revision to pass next time. Any malformed entry fails the call. A single-tenant
   or older KyIdentity answers 404, returned as an ordinary status error.
-
 - Root (minor): `suitedir.Groups` calls KyIdentity's `GET /api/suite/groups`: the suite
   groups for the calling app, `Group{ID, Name, Slug, State, Members}` with `GroupActive`
   or `GroupArchived`. Same transport rules as `Apps`; bodies to 8 MiB. Needs a KyIdentity
   that serves the route; an older one answers 404, returned as an ordinary status error.
-
 - Root (minor): `suitedir.People` (search by name, username or email prefix) and
   `suitedir.Resolve` (exact addresses) call KyIdentity's `GET /api/suite/people` with the
   same transport rules as `Apps`. New type `Person{Sub, Name, Email}`. Needs a KyIdentity
   that serves the route; an older one answers 404, returned as an ordinary status error.
-
+- Root (minor): new `suitedir` package, the client for KyIdentity's suite directory
+  (`/api/suite/apps`, `/api/suite/peer`). Additive; no migration.
 - Root (minor): new `netallow` package. `Parse` reads an admin-configured comma-separated
   list of CIDR ranges or addresses exempt from a product's per-IP rate limits and refuses
   invalid entries, ranges broader than /16 (IPv4) or /48 (IPv6), loopback, zones and
@@ -149,20 +151,18 @@ Keep unpublished changes separate from tagged releases.
   own that a racing run wrote, so two runs with `keep=1` can no longer delete each
   other's copies and leave none. The KyRecovery client tries
   every allowed address instead of only the first.
-- Root: new `suitedir` package, the client for KyIdentity's suite directory
-  (`/api/suite/apps`, `/api/suite/peer`). Additive; no migration.
 - Root: `recoveryclient.RepinRecoveryKey` moves a product to a new recovery key after
   KyRecovery rotation, when the operator confirms the full pinned and new key IDs and the
   product's audit recorder succeeds. `StoreRecoveryKey` now refuses a different key with
   `*PinnedError` (code `recovery_key_pinned`, both key IDs); it still satisfies
   `errors.Is(err, fs.ErrExist)`, so existing callers keep working. Products adopt by adding
   an admin, step-up-gated "Move to a new recovery key" action that calls it.
-- Root/offsite: document the supported strong-key/TLS process configuration and
-  run both modules' race suites in that mode. A real-handshake regression checks
-  certificate-chain key floors while preserving ordinary trust/hostname checks.
-  The library does not change an embedding application's runtime environment:
-  operators enable the documented profile and verify each product's extra
-  integrations. Capsule formats, credentials and retained keys are unchanged.
+- Root: document the supported strong-key/TLS process configuration (`docs/STRONG-CRYPTO.md`)
+  and run the race suite in that mode (`GODEBUG=fips140=on`). A real-handshake regression
+  checks certificate-chain key floors while preserving ordinary trust/hostname checks.
+  The library does not change an embedding application's runtime environment: operators
+  enable the documented profile and verify each product's extra integrations. The nested
+  `offsite` module runs the same profile on its own version stream.
 - Root: Shamir splitting now samples every polynomial coefficient uniformly,
   including zero, instead of conditioning the leading coefficient to be nonzero.
   This restores the intended share distribution without changing `ky2` encoding
@@ -170,10 +170,29 @@ Keep unpublished changes separate from tagged releases.
 - Root: `totp.Code` and `totp.Validate` refuse decoded secrets below 16 bytes
   (RFC 4226's minimum). Generated secrets are unchanged at 20 bytes. Callers must
   keep weak legacy records and have users re-enrol rather than rewrite them.
-- Contributor/security documentation, pinned CI actions and live assurance badges
-  were added. These changes do not publish a new module version.
+- Root: refresh `golang.org/x/crypto` from `v0.58.0` to `v0.59.0` (and indirect
+  `golang.org/x/sys` from `v0.49.0` to `v0.50.0`), retaining the root module's dependency
+  budget.
+- Repository/docs/CI: split package guides into `docs/`, add REUSE 3.3 licensing metadata
+  (`REUSE.toml`, `LICENSES/`), contributor/security documentation, pinned CI actions,
+  committed-binary guard, live assurance badges and the suite PQC migration plan.
 
-## Root module
+Upgrade impact: existing `kycap/3` containers, `ky2` Shamir shares, retained recovery keys
+and stored credentials keep their formats. `go.mod` continues to require Go 1.26.6;
+`hybridsig` (and its `cmd/pqwasm` entrypoints) requires Go 1.27 (`crypto/mldsa`). Before
+upgrading consumers, review the tightened boundary rules: `totp` rejects secrets under 16
+bytes (preserve weak legacy rows and require user re-enrolment), `StoreRecoveryKey` returns
+`*PinnedError` on key mismatch (still matching `fs.ErrExist`; rotate via
+`RepinRecoveryKey`), `recoveryclient.Restore`/`Drill` reassemble `<path>.000-of-NNN` parts
+and report `ErrSplitParts` on broken sets, `recoveryclient.Run` surfaces pairing-store read
+errors and refuses `64:ff9b:1::/48`, `capsule` rejects non-UTF-8 paths and GNU sparse tar
+members, `password.Verify` rejects hashes over 3 KiB, `auditchain` rejects non-UTF-8 fields
+with `ErrInvalidUTF8`, `syncauth.Middleware` answers completed duplicates with 200
+`duplicate_event` and in-flight duplicates with 503 `Retry-After: 1`, and `scim.FindUser`
+requires `totalResults == 0` for `ErrNotFound` while `CreateUser`/`ReplaceUser` always send
+`roles`. No known vulnerability IDs are claimed fixed by this release; run `govulncheck ./...`
+as part of consumer adoption. Updating the root module does not select a new `offsite`
+module version.
 
 ### [v0.10.1 — 2026-10-23](https://github.com/Busnes-app/ky-primitives/tree/v0.10.1)
 
