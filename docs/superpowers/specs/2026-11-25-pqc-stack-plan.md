@@ -11,7 +11,7 @@ public key, or signatures, and sets the order.
 - **Approved as recommended:** Q3 (browser PQ code as ky-primitives Go WASM), Q4, Q6, Q8, Q9, Q12, Q13, Q14.
 - **Q7: no custom crypto, agreed.** KyMessages waits for upstream PQ Olm or MLS. Meanwhile everything around Olm
   becomes PQ.
-- **Q10: explore a WireGuard mesh.** Research in progress; this plan gains a "Cell links" section.
+- **Q10: explore a WireGuard mesh.** Explored in "Cell links" below; decisions 10a-10e are open.
 - **Asked for explanation, pending:** Q1 (is W0 needed), Q2 (security level), Q5 (which third parties), Q11
   (KyVault).
 - **Spec A answers that touch this plan:**
@@ -182,6 +182,46 @@ small PR:
   - Flatpak OSTree GPG RSA-4096 keys that never expire.
   - apksigner and Apple codesign (upstream).
   - No SSH deploy keys, sops, age or sealed-secrets anywhere.
+
+## Cell links (owner Q10: explore a WireGuard mesh)
+
+Research is in `2026-11-25-pqc-wireguard-mesh-research.md`. Read from primary sources; nothing was built or run.
+
+**What a cell's hosts send each other.** HTTPS from the edge to the replicas, the PostgreSQL wire protocol (clients,
+PgBouncer, streaming replication), Ky-to-Ky mTLS (MX to receiving), operator SSH, and metrics. Nothing needs network
+connectivity between cells (KyPost multi-host spec `:67-72,599-615`; KyIdentity tenancy "Cells"). The provider's
+private networks are isolated but not encrypted, and its cloud firewalls cannot filter them.
+
+**WireGuard is classical on its own.** The handshake is X25519. Its only post-quantum hook is the optional 32-byte
+pre-shared key (PSK), which the whitepaper adds for exactly the record-now-decrypt-later case. A PSK delivered over a
+PQ channel makes recorded traffic safe against a future quantum computer.
+
+**The options today (2026-11-25):**
+
+| Option | PQ property | State | Verdict |
+|---|---|---|---|
+| A. Hybrid mTLS only | HNDL-safe on Go links; PostgreSQL needs PG18 `ssl_groups` and OpenSSL ≥ 3.5; PgBouncer/HAProxy rely on OpenSSL defaults | Mostly in place (W0) | Do regardless |
+| B. Kernel WireGuard + static random PSK per host pair, pushed over SSH (`mlkem768x25519-sha256`) and rotated on a schedule | HNDL-safe; no PQ forward secrecy between rotations; authentication X25519 | Debian packages only, nothing new to run | **Simplest PQ mesh** |
+| C. Kernel WireGuard + Rosenpass, strict | HNDL-safe with a 2-minute PSK rotation | Released v0.2.3 still uses **Kyber-512 round 3**; ML-KEM (protocol v3) is merged but unreleased; not packaged for Debian; 0.5 MB McEliece public keys; upstream calls it a research project | Later, once ML-KEM ships in a release |
+| D. Headscale + Tailscale clients | ML-KEM-768 hybrid WireGuard handshake, merged 2026-11-17, **not in a stable release**; control plane stays classical Noise | Watch | Re-check when stable |
+| NetBird + Rosenpass | As C | **Deprecated upstream in v0.82.0 (2026-10-29)** | No |
+| Nebula, Netmaker, innernet, Cilium WireGuard | Classical today | — | No |
+
+**Recommendation:** A now. If you want a mesh for firewalling and defence in depth (every internal port listening
+only on `wg0`, public firewalls reduced to the WireGuard port plus 443 from the edge), use **B in strict mode**: a link
+with no PSK carries nothing. Move to C or D when they ship ML-KEM in a release. The mesh never replaces app-level
+authentication: pins and `verify-full` stay.
+
+**Decisions for Q10** (each with a recommendation):
+
+- **10a. Mesh or not.** Recommend A plus B.
+- **10b. Strict or permissive.** Recommend strict inside a cell, because every host is ours.
+- **10c. Who manages it.** KyQuickStart is frozen against new orchestration features
+  (`KyQuickStart:AGENTS.md:683-686`). Recommend a small script in the private infra repo for the hosted cells, not
+  a KyQuickStart feature. Self-hosters keep option A.
+- **10d. PSK rotation.** Recommend monthly, and on every host change. A retired or compromised host's pairs are
+  re-keyed at once.
+- **10e. Monitoring.** Recommend alerts on a handshake older than 180 s and on any peer with no PSK.
 
 ## Plan table
 
