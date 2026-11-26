@@ -1,5 +1,7 @@
 # offsite
 
+[Overview](../README.md) · [Strong cryptography](../docs/STRONG-CRYPTO.md) · [Release notes](../CHANGELOG.md#offsite-module)
+
 `offsite` copies opaque objects to one of four target types behind the same
 interface:
 

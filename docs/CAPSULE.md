@@ -109,7 +109,8 @@ the constants rather than the refusal. An extraction-side test for both is outst
 
 `testdata/capsules/` holds one `kycap/3` capsule with the recovery seed that opens it, and
 under `retired/` the last `kycap/2` capsule, kept so `Open`'s refusal is measured against a
-real container. See the README there for why the seed is committed.
+real container. See [`testdata/capsules/README.md`](../testdata/capsules/README.md) for why
+the seed is committed.
 
 ## recoverykey
 
