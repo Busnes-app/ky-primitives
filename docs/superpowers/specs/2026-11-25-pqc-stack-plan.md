@@ -1,10 +1,24 @@
 # Ky stack post-quantum migration, plan
 
-Date: 2026-11-25. Status: **proposed, awaiting owner answers** to the numbered questions at the end. Nothing here
-is built. Owner request (2026-11-25): "I would like to see the whole stack migrated to PQC." KyPost goes first, in
+Date: 2026-11-25. Status: **approved in part** (see "Owner answers"). Q1, Q2, Q5, Q10 and Q11 are still open.
+Nothing is built yet. Owner request (2026-11-25): "I would like to see the whole stack migrated to PQC." KyPost goes first, in
 its own spec (**A**: `KyPost-Server/docs/superpowers/specs/2026-11-25-pqc-openpgp-v6-design.md`, PR
 Busnes-app/KyPost-Server#743). This plan covers every other place the suite does key exchange, encryption to a
 public key, or signatures, and sets the order.
+
+## Owner answers (2026-11-25)
+
+- **Approved as recommended:** Q3 (browser PQ code as ky-primitives Go WASM), Q4, Q6, Q8, Q9, Q12, Q13, Q14.
+- **Q7: no custom crypto, agreed.** KyMessages waits for upstream PQ Olm or MLS. Meanwhile everything around Olm
+  becomes PQ.
+- **Q10: explore a WireGuard mesh.** Research in progress; this plan gains a "Cell links" section.
+- **Asked for explanation, pending:** Q1 (is W0 needed), Q2 (security level), Q5 (which third parties), Q11
+  (KyVault).
+- **Spec A answers that touch this plan:**
+  - Users' stored mail is re-encrypted to v6 (A P6).
+  - The browser pins an openpgp.js v7 commit and falls back to gopenpgp compiled to WASM. A Node 26 spike of
+    gopenpgp `profile.PQC()` under `GOOS=js GOARCH=wasm` produced an 8.8 MB module (2.4 MB gzipped) with 4-18 ms
+    operations.
 
 Companion files in this directory:
 
