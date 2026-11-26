@@ -59,6 +59,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`suitedir`](docs/IDENTITY.md#suitedir) | Asks KyIdentity which suite apps a user may open, which organisation people the calling app can offer, its suite groups, a paired app's URL and shared syncauth secret, and a multi-tenant install's organisations and erased subjects. |
 | [`s3`](docs/S3.md) | Shared signed HTTPS object/version client; products own storage policy. |
 | [`netallow`](docs/NETWORK.md#netallow) | The office-network allowlist that exempts requests from per-IP rate limits. |
+| [`hybridsig`](docs/HYBRIDSIG.md#hybridsig) | ML-DSA-65 + Ed25519 signatures, both required, in a Ky-internal format (Go 1.27); also built for browsers as `cmd/pqwasm`. |
 
 ## offsite nested module
 

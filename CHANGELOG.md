@@ -158,6 +158,11 @@ Keep unpublished changes separate from tagged releases.
 - Contributor/security documentation, pinned CI actions and live assurance badges
   were added. These changes do not publish a new module version.
 
+- Root (minor): new `hybridsig` package (Go 1.27): ML-DSA-65 + Ed25519 signatures, both must
+  verify, over SHA-256(label ‖ 0x00 ‖ msg), lifted from kyguard. Alg-tagged key, signature and
+  key-ID encodings; Ky-internal, not an X.509/JOSE composite. Shared vectors in
+  `hybridsig/testdata`; `cmd/pqwasm` builds it for browsers. Standard library only; additive.
+
 ## Root module
 
 ### [v0.10.1 — 2026-10-23](https://github.com/Busnes-app/ky-primitives/tree/v0.10.1)
