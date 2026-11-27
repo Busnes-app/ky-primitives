@@ -36,6 +36,10 @@ import (
 // a capsule Open accepts could have been sealed by anyone who holds it. Authenticity comes
 // from the channel that deposits the capsule, not from the container.
 func Seal(serviceName, appVersion string, files []File, deps, recipe map[string]any, threshold, totalShares int, to recoverykey.PublicKey) (raw []byte, m Manifest, err error) {
+	return seal(serviceName, appVersion, files, deps, recipe, threshold, totalShares, to, "", nil)
+}
+
+func seal(serviceName, appVersion string, files []File, deps, recipe map[string]any, threshold, totalShares int, to recoverykey.PublicKey, signerKeyID string, signManifest func(manifestBytes []byte) (string, error)) (raw []byte, m Manifest, err error) {
 	if len(files) == 0 {
 		return nil, Manifest{}, fmt.Errorf("refusing to seal a capsule with no files")
 	}
@@ -75,15 +79,17 @@ func Seal(serviceName, appVersion string, files []File, deps, recipe map[string]
 		TotalShares:        totalShares,
 		RecoveryKeyID:      to.ID(),
 		EncapsulatedKey:    base64.StdEncoding.EncodeToString(enc),
+		SignerKeyID:        signerKeyID,
 		Files:              entries,
 		Dependencies:       deps,
 		VerificationRecipe: recipe,
 	}
-	// Marshalled once, then used twice: these bytes are the AAD and they are what lands
-	// in the container. Deriving the AAD from a second encoding of the same struct would
-	// make every capsule depend on two encoders agreeing forever. The returned Manifest
-	// wraps this same value, so it is the sealed one rather than a second construction —
-	// TestSealReturnsTheManifestItSealed re-encodes it against the container's own bytes.
+	// Marshalled once, then used for the AAD, the optional manifest signature, and what
+	// lands in the container. Deriving the AAD or signature from a second encoding of the
+	// same struct would make every capsule depend on two encoders agreeing forever. The
+	// returned Manifest wraps this same value, so it is the sealed one rather than a second
+	// construction — TestSealReturnsTheManifestItSealed re-encodes it against the
+	// container's own bytes.
 	manifestBytes, err := json.Marshal(sealedManifest)
 	if err != nil {
 		return nil, Manifest{}, err
@@ -101,18 +107,27 @@ func Seal(serviceName, appVersion string, files []File, deps, recipe map[string]
 		return nil, Manifest{}, fmt.Errorf("%w: manifest is %d bytes, Open permits %d", ErrCapsuleTooLarge, len(manifestBytes), maxManifestBytes)
 	}
 
+	var sig string
+	if signManifest != nil {
+		sig, err = signManifest(manifestBytes)
+		if err != nil {
+			return nil, Manifest{}, err
+		}
+	}
+
 	sealed, err := sender.Seal(manifestBytes, payload)
 	if err != nil {
 		return nil, Manifest{}, fmt.Errorf("failed to seal capsule: %w", err)
 	}
 
 	// json.Marshal rather than MarshalIndent: indenting re-spaces the embedded manifest,
-	// and the AAD is the manifest's exact bytes. A pretty container that cannot be opened
-	// is not a trade worth making.
+	// and the AAD (and optional signature) is over the manifest's exact bytes. A pretty
+	// container that cannot be opened is not a trade worth making.
 	raw, err = json.Marshal(kycapFile{
-		Format:     KycapFileFormat,
-		Manifest:   manifestBytes,
-		Ciphertext: EncodeCiphertext(sealed),
+		Format:            KycapFileFormat,
+		Manifest:          manifestBytes,
+		Ciphertext:        EncodeCiphertext(sealed),
+		ManifestSignature: sig,
 	})
 	if err != nil {
 		return nil, Manifest{}, err

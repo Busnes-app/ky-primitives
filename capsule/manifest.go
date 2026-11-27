@@ -1,6 +1,7 @@
 package capsule
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -55,6 +56,11 @@ type UnverifiedManifest struct {
 	// EncapsulatedKey is the HPKE encapsulated key, standard base64 of 1120 bytes. Public by
 	// construction. Inside the AAD like every other field, so swapping it fails the AEAD.
 	EncapsulatedKey string `json:"encapsulated_key"`
+	// SignerKeyID optionally names the per-product hybrid signing key that signed this
+	// manifest: hybridsig.PublicKey.ID(). Omitted on unsigned capsules so existing wire
+	// output stays byte-identical. When present it is inside both the HPKE AAD and the
+	// manifest signature itself.
+	SignerKeyID string `json:"signer_key_id,omitempty"`
 
 	// Files is not a manifest field. The manifest is stored in the clear, so a per-member
 	// path, size and digest published there is readable by anyone who merely holds the
@@ -89,6 +95,20 @@ type Manifest struct {
 	UnverifiedManifest
 }
 
+// decodeManifest parses a raw manifest field and refuses JSON null or non-object values
+// rather than silently returning a zero UnverifiedManifest.
+func decodeManifest(raw json.RawMessage) (UnverifiedManifest, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return UnverifiedManifest{}, fmt.Errorf("%w: manifest is not a JSON object", ErrCorruptCapsule)
+	}
+	var m UnverifiedManifest
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return UnverifiedManifest{}, fmt.Errorf("%w: unreadable manifest: %v", ErrCorruptCapsule, err)
+	}
+	return m, nil
+}
+
 // ReadUnverifiedManifest returns a capsule's manifest without decrypting it and without a
 // key. Read the doc comment on UnverifiedManifest before using it.
 func ReadUnverifiedManifest(raw []byte) (UnverifiedManifest, error) {
@@ -96,9 +116,5 @@ func ReadUnverifiedManifest(raw []byte) (UnverifiedManifest, error) {
 	if err != nil {
 		return UnverifiedManifest{}, err
 	}
-	var m UnverifiedManifest
-	if err := json.Unmarshal(cf.Manifest, &m); err != nil {
-		return UnverifiedManifest{}, fmt.Errorf("%w: unreadable manifest: %v", ErrCorruptCapsule, err)
-	}
-	return m, nil
+	return decodeManifest(cf.Manifest)
 }
