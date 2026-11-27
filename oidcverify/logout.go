@@ -31,10 +31,11 @@ type LogoutClaims struct {
 	ExpiresAt   time.Time
 	ReplayUntil time.Time // last acceptance boundary, including clock-skew leeway
 	KeyID       string
+	Algorithm   string
 }
 
-// VerifyLogout verifies an RS256 logout+jwt with issuer, audience, required iat/exp/jti,
-// a sub or sid, the back-channel event object, and no nonce or token_use claim.
+// VerifyLogout verifies an ML-DSA-65 or RS256 logout+jwt with issuer, audience, required
+// iat/exp/jti, a sub or sid, the back-channel event object, and no nonce or token_use claim.
 // It shares Verify's JWKS cache, refresh limits, clock and leeway. Tokens older than
 // MaxLogoutTokenAge plus leeway are refused. It neither records replay IDs nor ends
 // sessions; the receiver owns those durable operations and bounds its HTTP request.
@@ -77,5 +78,6 @@ func (v *Verifier) VerifyLogout(ctx context.Context, token string) (LogoutClaims
 	return LogoutClaims{
 		Issuer: c.Issuer, Subject: sub, SessionID: sid, Audience: c.Audience, JWTID: jti,
 		IssuedAt: c.IssuedAt, ExpiresAt: c.ExpiresAt, ReplayUntil: replayUntil, KeyID: c.KeyID,
+		Algorithm: c.Algorithm,
 	}, nil
 }

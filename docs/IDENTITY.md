@@ -57,10 +57,10 @@ failure release around expiry; sampling time outside admission's lock makes it f
 
 ## oidcverify
 
-Verifies the RS256 tokens KySignOn issues against its JWKS, on the standard library. Five
-products parsed these with their own code, and at least one read the claims without checking
-the signature. One wrong check of `alg`, `aud`, `iss`, `exp` or `kid` accepts a token it
-should not.
+Verifies the ML-DSA-65 (RFC 9964 AKP JWK, Go 1.27+) and RS256 (RSA JWK) tokens KySignOn
+issues against its JWKS, on the standard library. Five products parsed these with their own
+code, and at least one read the claims without checking the signature. One wrong check of
+`alg`, `aud`, `iss`, `exp` or `kid` accepts a token it should not.
 
 ```go
 v := &oidcverify.Verifier{Issuer: cfg.IssuerURL, Audience: cfg.ClientID}
@@ -70,16 +70,27 @@ mux.Handle("GET /api/me", v.Middleware(logReject)(handler))
 
 Pinned: the issuer and JWKS URL must be HTTPS and the fetch follows no redirect, checked
 before any request is made (`TestPlaintextIssuerIsRefusedWithoutARequest`,
-`TestJWKSRedirectIsRefused`); the algorithm is RS256 or nothing, so `none`, `HS256` and an empty signature segment
-are refused before any key work (`TestVerifyRefusesAlgorithmConfusionAndBadSignatures`);
-each standard claim is checked with one minute of leeway and an audience array is refused
-unless the product opts in (`TestVerifyRefusesEachBadClaim`); base64url must be unpadded so
-one token has one encoding; JWKS entries that are not RSA signing keys are ignored even under
-the right `kid` (`TestJWKSIgnoresNonRSAKeysUnderTheSameKid`); an unknown `kid` triggers at
-most one rate-limited refresh whether the fetch succeeds or fails, the fetch runs outside
-the lock so concurrent verifications share it, and a stale key set outlives an issuer outage
-(`TestJWKSRefreshIsRateLimitedAndStaleSetSurvivesOutage`, `TestUnknownKidDoesNotStallVerification`,
-`TestConcurrentUnknownKidsShareOneFetch`).
+`TestJWKSRedirectIsRefused`); only `ML-DSA-65` (on Go 1.27+) and `RS256` are accepted with
+strict `alg`/`kty` binding so an RSA key can never verify an `ML-DSA-65` token or vice
+versa, and `none`, `HS256`, `ML-DSA-44`, `ML-DSA-87`, and empty signatures are refused
+(`TestVerifyRefusesAlgorithmConfusionAndBadSignatures`,
+`TestMLDSA65AlgorithmConfusionAndMutations`); each standard claim is checked with one minute
+of leeway and an audience array is refused unless the product opts in
+(`TestVerifyRefusesEachBadClaim`); base64url must be unpadded and canonical so one token or
+key has one encoding; JWKS entries that are not usable signing keys are ignored even under
+the right `kid`, and duplicate signing `kid`s are refused
+(`TestJWKSIgnoresNonRSAKeysUnderTheSameKid`, `TestMLDSA65JWKSFilteringAndDuplicateKid`);
+an unknown `kid` triggers at most one rate-limited refresh whether the fetch succeeds or
+fails, the fetch runs outside the lock so concurrent verifications share it, and a stale
+key set outlives an issuer outage (`TestJWKSRefreshIsRateLimitedAndStaleSetSurvivesOutage`,
+`TestUnknownKidDoesNotStallVerification`, `TestConcurrentUnknownKidsShareOneFetch`).
+
+For multi-key issuers and `coreos/go-oidc` relying parties, `oidcverify` also provides
+`MarshalMLDSA65PublicJWK`, `MarshalAKPPublicJWK`, `ParseAKPPublicJWK`, `MarshalRSAPublicJWK`,
+`MarshalJWKS`, `SupportedAlgorithms`, `PreferredAlgorithm`, `ValidateJWKS`, and
+`StrongJWKSTransport` (stdlib-only HTTP `RoundTripper` enforcing 3xx redirect refusal,
+1 MiB cap, strict case-sensitive duplicate-rejecting JSON parsing, RSA ≥ 2048 bits, and
+AKP `alg: "ML-DSA-65"` with exact 1952-byte raw public keys).
 
 
 ### Back-channel logout
@@ -93,7 +104,8 @@ logout, err := v.VerifyLogout(ctx, logoutToken)
 // matching sessions. Keep the replay record through logout.ReplayUntil.
 ```
 
-It shares the verifier's RS256 signature checks, HTTPS JWKS cache, issuer/audience checks,
+It shares the verifier's ML-DSA-65 and RS256 signature checks, HTTPS JWKS cache,
+issuer/audience checks,
 clock and leeway. It requires exact `typ: logout+jwt`, numeric `iat` and `exp`, a nonempty
 `jti`, a nonempty `sub` or `sid` (or both), and an `events` object whose
 `http://schemas.openid.net/event/backchannel-logout` member is an object. `nonce` and
