@@ -1,11 +1,13 @@
-// Package oidcverify verifies tokens KySignOn issues: RS256 JWTs whose signing key is
-// published at the issuer's JWKS endpoint. Five products parsed these with their own code,
-// and at least one read the claims without checking the signature at all. One wrong check
-// of alg, aud, iss, exp or kid accepts a token it should not, indistinguishable from a good
-// one, so the check lives here once, on the standard library alone.
+// Package oidcverify verifies tokens KySignOn issues: ML-DSA-65 (RFC 9964 AKP JWK) and
+// RS256 (RSA JWK) JWTs whose signing keys are published at the issuer's JWKS endpoint.
+// Five products parsed these with their own code, and at least one read the claims without
+// checking the signature at all. One wrong check of alg, aud, iss, exp or kid accepts a
+// token it should not, indistinguishable from a good one, so the check lives here once, on
+// the standard library alone.
 //
-// The algorithm is pinned to RS256 because that is what KySignOn signs with. A token whose
-// header says anything else, including "none", is refused before any signature work.
+// Only ML-DSA-65 (on Go 1.27+) and RS256 are accepted, with strict alg/kty binding so an
+// RSA key can never verify an ML-DSA-65 header or vice versa. A token whose header says
+// anything else, including "none", is refused before any signature work.
 package oidcverify
 
 import (
@@ -13,15 +15,14 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ import (
 var (
 	ErrMalformed      = errors.New("oidcverify: token is not a three-part JWT")
 	ErrTokenType      = errors.New("oidcverify: token purpose does not match")
-	ErrAlgorithm      = errors.New("oidcverify: token algorithm is not RS256")
+	ErrAlgorithm      = errors.New("oidcverify: unsupported token algorithm")
 	ErrUnknownKey     = errors.New("oidcverify: no JWKS key matches the token's kid")
 	ErrSignature      = errors.New("oidcverify: signature does not verify")
 	ErrIssuer         = errors.New("oidcverify: issuer does not match")
@@ -54,6 +55,7 @@ type Claims struct {
 	NotBefore time.Time
 	Nonce     string
 	KeyID     string
+	Algorithm string
 	Raw       map[string]json.RawMessage
 }
 
@@ -73,6 +75,10 @@ type Verifier struct {
 	// AllowMultipleAudiences accepts an aud array that names this client among others.
 	// Off by default: a token minted for several clients is a token any of them can replay.
 	AllowMultipleAudiences bool
+	// AllowedAlgorithms optionally restricts the JWS algorithms accepted by this Verifier
+	// (a subset of SupportedAlgorithms). Empty accepts every algorithm supported by this
+	// build (ML-DSA-65 and RS256 on Go 1.27+; RS256 on Go 1.26).
+	AllowedAlgorithms []string
 	// JWKSURL defaults to Issuer + "/.well-known/jwks.json".
 	JWKSURL string
 	// HTTPClient defaults to a client with a ten-second timeout.
@@ -87,20 +93,17 @@ type Verifier struct {
 	MaxAge time.Duration
 
 	mu          sync.Mutex // guards the fields below
-	keys        map[string]*rsa.PublicKey
+	keys        map[string]verifyKey
 	fetchedAt   time.Time
 	attemptedAt time.Time
 	inflight    chan struct{} // closed when the fetch in progress finishes; nil when idle
 	fetchErr    error         // the last fetch's error, for callers that waited on it
 }
 
-type jwk struct {
-	Kty string `json:"kty"`
-	Kid string `json:"kid"`
-	Alg string `json:"alg"`
-	Use string `json:"use"`
-	N   string `json:"n"`
-	E   string `json:"e"`
+type verifyKey struct {
+	alg   string
+	rsa   *rsa.PublicKey
+	mldsa mldsaPublicKey
 }
 
 func (v *Verifier) now() time.Time {
@@ -115,6 +118,37 @@ func (v *Verifier) leeway() time.Duration {
 		return time.Minute
 	}
 	return v.Leeway
+}
+
+func (v *Verifier) algAllowed(alg string) bool {
+	supported := false
+	switch alg {
+	case AlgRS256:
+		supported = true
+	case AlgMLDSA65:
+		supported = mldsa65Supported
+	}
+	if !supported {
+		return false
+	}
+	if len(v.AllowedAlgorithms) == 0 {
+		return true
+	}
+	return slices.Contains(v.AllowedAlgorithms, alg)
+}
+
+// PreferredAlgorithm returns the strongest supported and allowed signing algorithm
+// offered by the issuer's JWKS, preferring ML-DSA-65 over RS256 when both are present.
+// It shares Verify's JWKS cache, refresh limits, and HTTPS checks.
+func (v *Verifier) PreferredAlgorithm(ctx context.Context) (string, error) {
+	if _, err := v.jwksURL(); err != nil {
+		return "", err
+	}
+	keys, err := v.keySet(ctx)
+	if err != nil {
+		return "", err
+	}
+	return pickPreferredAlgorithm(keys, v.AllowedAlgorithms)
 }
 
 // Verify checks an authentication token against the issuer's JWKS and standard claims.
@@ -158,15 +192,11 @@ func (v *Verifier) verifyJWT(ctx context.Context, token, tokenType string) (Clai
 	if err != nil {
 		return Claims{}, ErrMalformed
 	}
-	var header struct {
-		Alg string `json:"alg"`
-		Kid string `json:"kid"`
-		Typ string `json:"typ"`
-	}
-	if err := json.Unmarshal(headerJSON, &header); err != nil {
+	header, err := parseStrictJWSHeader(headerJSON)
+	if err != nil {
 		return Claims{}, ErrMalformed
 	}
-	if header.Alg != "RS256" {
+	if !v.algAllowed(header.Alg) {
 		return Claims{}, ErrAlgorithm
 	}
 	if tokenType != "" {
@@ -190,15 +220,31 @@ func (v *Verifier) verifyJWT(ctx context.Context, token, tokenType string) (Clai
 	if err != nil {
 		return Claims{}, err
 	}
-	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, sum[:], sig); err != nil {
-		return Claims{}, ErrSignature
+	// Strict alg/kty binding: an RSA key cannot verify ML-DSA-65 and an AKP key cannot
+	// verify RS256.
+	if key.alg != header.Alg {
+		return Claims{}, ErrAlgorithm
+	}
+	signingInput := parts[0] + "." + parts[1]
+	switch header.Alg {
+	case AlgRS256:
+		sum := sha256.Sum256([]byte(signingInput))
+		if err := rsa.VerifyPKCS1v15(key.rsa, crypto.SHA256, sum[:], sig); err != nil {
+			return Claims{}, ErrSignature
+		}
+	case AlgMLDSA65:
+		if err := verifyMLDSA65(key.mldsa, []byte(signingInput), sig); err != nil {
+			return Claims{}, ErrSignature
+		}
+	default:
+		return Claims{}, ErrAlgorithm
 	}
 	c, err := parseClaims(payload)
 	if err != nil {
 		return Claims{}, err
 	}
 	c.KeyID = header.Kid
+	c.Algorithm = header.Alg
 	now := v.now()
 	lw := v.leeway()
 	switch {
@@ -235,13 +281,10 @@ func (v *Verifier) audienceOK(aud []string) bool {
 	}
 }
 
-// decodeSegment decodes base64url without padding, as RFC 7515 requires; padded input is
-// refused so two encodings of one token cannot exist.
+// decodeSegment decodes canonical unpadded base64url, as RFC 7515 requires; padded or
+// non-canonical input is refused so two encodings of one token cannot exist.
 func decodeSegment(s string) ([]byte, error) {
-	if strings.ContainsAny(s, "=+/") {
-		return nil, ErrMalformed
-	}
-	return base64.RawURLEncoding.DecodeString(s)
+	return decodeStrictBase64URL(s)
 }
 
 func parseClaims(payload []byte) (Claims, error) {
@@ -302,13 +345,13 @@ func numericDate(raw json.RawMessage) (time.Time, error) {
 	return time.Unix(int64(f), 0), nil
 }
 
-// key returns the RSA key for kid. The cached set is used while fresh; an unknown kid or a
-// stale set triggers a refresh, at most once per MinRefresh whether the fetch succeeds or
-// fails, so an attacker-chosen kid cannot make every request pay the issuer's timeout.
-// One fetch runs at a time, on its own goroutine: it serves everyone who waits on it, so
-// a caller that hangs up stops waiting but cannot cancel it — one dropped request would
-// otherwise lock everyone out of a rotated key for MinRefresh.
-func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+// key returns the verification key for kid. The cached set is used while fresh; an unknown
+// kid or a stale set triggers a refresh, at most once per MinRefresh whether the fetch
+// succeeds or fails, so an attacker-chosen kid cannot make every request pay the issuer's
+// timeout. One fetch runs at a time, on its own goroutine: it serves everyone who waits on
+// it, so a caller that hangs up stops waiting but cannot cancel it — one dropped request
+// would otherwise lock everyone out of a rotated key for MinRefresh.
+func (v *Verifier) key(ctx context.Context, kid string) (verifyKey, error) {
 	maxAge := v.MaxAge
 	if maxAge == 0 {
 		maxAge = time.Hour
@@ -335,12 +378,59 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 		return v.await(ctx, done, kid)
 	case !v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < minRefresh:
 		v.mu.Unlock()
+		return verifyKey{}, ErrUnknownKey
+	}
+	done := v.startFetchLocked(ctx, now)
+	v.mu.Unlock()
+	return v.await(ctx, done, kid)
+}
+
+func (v *Verifier) keySet(ctx context.Context) (map[string]verifyKey, error) {
+	maxAge := v.MaxAge
+	if maxAge == 0 {
+		maxAge = time.Hour
+	}
+	minRefresh := v.MinRefresh
+	if minRefresh == 0 {
+		minRefresh = 30 * time.Second
+	}
+	now := v.now()
+
+	v.mu.Lock()
+	hasKeys := len(v.keys) > 0
+	switch {
+	case hasKeys && now.Sub(v.fetchedAt) < maxAge:
+		out := v.keys
+		v.mu.Unlock()
+		return out, nil
+	case hasKeys && (v.inflight != nil || (!v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < minRefresh)):
+		out := v.keys
+		v.mu.Unlock()
+		return out, nil
+	case v.inflight != nil:
+		done := v.inflight
+		v.mu.Unlock()
+		return v.awaitSet(ctx, done)
+	case !v.attemptedAt.IsZero() && now.Sub(v.attemptedAt) < minRefresh:
+		err := v.fetchErr
+		out := v.keys
+		v.mu.Unlock()
+		if len(out) > 0 {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 		return nil, ErrUnknownKey
 	}
+	done := v.startFetchLocked(ctx, now)
+	v.mu.Unlock()
+	return v.awaitSet(ctx, done)
+}
+
+func (v *Verifier) startFetchLocked(ctx context.Context, now time.Time) <-chan struct{} {
 	done := make(chan struct{})
 	v.inflight, v.attemptedAt = done, now
-	v.mu.Unlock()
-
 	go func() {
 		keys, err := v.fetch(context.WithoutCancel(ctx))
 		v.mu.Lock()
@@ -351,11 +441,29 @@ func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) 
 		v.mu.Unlock()
 		close(done)
 	}()
-	return v.await(ctx, done, kid)
+	return done
 }
 
 // await waits for the fetch behind done, or for the caller to give up.
-func (v *Verifier) await(ctx context.Context, done <-chan struct{}, kid string) (*rsa.PublicKey, error) {
+func (v *Verifier) await(ctx context.Context, done <-chan struct{}, kid string) (verifyKey, error) {
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return verifyKey{}, ctx.Err()
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	// A stale set beats no set: the issuer being unreachable must not log everyone out.
+	if k, ok := v.keys[kid]; ok {
+		return k, nil
+	}
+	if v.fetchErr != nil {
+		return verifyKey{}, v.fetchErr
+	}
+	return verifyKey{}, ErrUnknownKey
+}
+
+func (v *Verifier) awaitSet(ctx context.Context, done <-chan struct{}) (map[string]verifyKey, error) {
 	select {
 	case <-done:
 	case <-ctx.Done():
@@ -363,9 +471,8 @@ func (v *Verifier) await(ctx context.Context, done <-chan struct{}, kid string) 
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	// A stale set beats no set: the issuer being unreachable must not log everyone out.
-	if k, ok := v.keys[kid]; ok {
-		return k, nil
+	if len(v.keys) > 0 {
+		return v.keys, nil
 	}
 	if v.fetchErr != nil {
 		return nil, v.fetchErr
@@ -400,7 +507,7 @@ func (v *Verifier) jwksURL() (string, error) {
 	return u, nil
 }
 
-func (v *Verifier) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error) {
+func (v *Verifier) fetch(ctx context.Context) (map[string]verifyKey, error) {
 	u, err := v.jwksURL()
 	if err != nil {
 		return nil, err
@@ -432,43 +539,64 @@ func (v *Verifier) fetch(ctx context.Context) (map[string]*rsa.PublicKey, error)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: status %d", ErrJWKS, resp.StatusCode)
 	}
-	var set struct {
-		Keys []jwk `json:"keys"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&set); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxJWKSBytes+1))
+	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrJWKS, err)
 	}
-	out := map[string]*rsa.PublicKey{}
-	for _, k := range set.Keys {
-		// Only RSA signing keys under a kid are usable; an EC key or an encryption key that
-		// shares a kid is ignored rather than mistaken for the signer.
-		if k.Kty != "RSA" || k.Kid == "" || (k.Alg != "" && k.Alg != "RS256") || (k.Use != "" && k.Use != "sig") {
-			continue
-		}
-		pub, err := rsaFromJWK(k)
-		if err != nil {
-			continue
-		}
-		out[k.Kid] = pub
+	if len(raw) > MaxJWKSBytes {
+		return nil, fmt.Errorf("%w: response exceeds 1 MiB", ErrJWKS)
 	}
-	return out, nil
+	parsed, err := parseStrictJWKS(raw)
+	if err != nil {
+		return nil, err
+	}
+	return extractSigningKeys(parsed)
 }
 
-func rsaFromJWK(k jwk) (*rsa.PublicKey, error) {
-	nb, err := base64.RawURLEncoding.DecodeString(k.N)
-	if err != nil {
-		return nil, err
+func extractSigningKeys(parsed []parsedJWK) (map[string]verifyKey, error) {
+	out := make(map[string]verifyKey)
+	for _, k := range parsed {
+		// Only signing keys under a non-empty kid are usable; encryption keys and
+		// unsupported key types (such as EC or oct) are ignored rather than mistaken
+		// for a signer.
+		if k.Kid == "" || (k.Use != "" && k.Use != "sig") {
+			continue
+		}
+		if k.hasKeyOps && !slices.Contains(k.keyOps, "verify") {
+			continue
+		}
+		switch k.Kty {
+		case "RSA":
+			if k.hasPub || (k.Alg != "" && k.Alg != AlgRS256) {
+				continue
+			}
+			pub, err := parseRSAPublicKey(k.N, k.E)
+			if err != nil {
+				continue
+			}
+			if _, dup := out[k.Kid]; dup {
+				return nil, fmt.Errorf("%w: duplicate signing kid %q", ErrJWKS, k.Kid)
+			}
+			out[k.Kid] = verifyKey{alg: AlgRS256, rsa: pub}
+		case "AKP":
+			if !mldsa65Supported || k.hasN || k.hasE || k.Alg != AlgMLDSA65 {
+				continue
+			}
+			pubBytes, err := decodeStrictBase64URL(k.Pub)
+			if err != nil {
+				continue
+			}
+			pub, err := parseMLDSA65PublicKey(pubBytes)
+			if err != nil {
+				continue
+			}
+			if _, dup := out[k.Kid]; dup {
+				return nil, fmt.Errorf("%w: duplicate signing kid %q", ErrJWKS, k.Kid)
+			}
+			out[k.Kid] = verifyKey{alg: AlgMLDSA65, mldsa: pub}
+		}
 	}
-	eb, err := base64.RawURLEncoding.DecodeString(k.E)
-	if err != nil {
-		return nil, err
-	}
-	n := new(big.Int).SetBytes(nb)
-	e := new(big.Int).SetBytes(eb)
-	if n.BitLen() < 2048 || !e.IsInt64() || e.Int64() < 3 {
-		return nil, errors.New("oidcverify: RSA key too small or exponent invalid")
-	}
-	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
+	return out, nil
 }
 
 type ctxKey struct{}

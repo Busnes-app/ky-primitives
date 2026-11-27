@@ -55,7 +55,7 @@ Each package's contract, the flaws it replaced and the tests that pin it are in 
 | [`keyfile`](docs/CREDENTIALS.md#keyfile) | Loads a long-lived secret from disk, creating it on first use. |
 | [`derive`](docs/CREDENTIALS.md#derive) | The login secret a client sends in place of a password: PBKDF2-SHA256 stretched, then HKDF-SHA256 expanded. |
 | [`syncauth`](docs/IDENTITY.md#syncauth) | One definition of how KySignOn signs a directory-sync event and how a product verifies it. |
-| [`oidcverify`](docs/IDENTITY.md#oidcverify) | Verifies the RS256 tokens KySignOn issues against its JWKS, on the standard library. |
+| [`oidcverify`](docs/IDENTITY.md#oidcverify) | Verifies ML-DSA-65 (RFC 9964 AKP JWK) and RS256 tokens KySignOn issues against its JWKS, plus shared AKP+RSA JWKS strength enforcement, on the standard library. |
 | [`scim`](docs/IDENTITY.md#scim) | The SCIM 2.0 client KySignOn provisions accounts with, and the RFC 7643 User type it shares with a server. |
 | [`suitedir`](docs/IDENTITY.md#suitedir) | Asks KyIdentity which suite apps a user may open, which organisation people the calling app can offer, its suite groups, a paired app's URL and shared syncauth secret, and a multi-tenant install's organisations and erased subjects. |
 | [`s3`](docs/S3.md) | Shared signed HTTPS object/version client; products own storage policy. |
