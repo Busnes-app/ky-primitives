@@ -43,6 +43,11 @@ var (
 	// Open was given. It is checked before any decapsulation, so a wrong kit fails cheaply
 	// and by name.
 	ErrWrongRecoveryKey = errors.New("capsule is sealed to a different recovery key")
+	// ErrMissingSignature reports a capsule that carries no manifest signature when the
+	// caller required one.
+	ErrMissingSignature = errors.New("capsule has no manifest signature")
+	// ErrInvalidSignature reports a capsule whose manifest signature failed verification.
+	ErrInvalidSignature = errors.New("capsule manifest signature is invalid")
 )
 
 // File is one member of a capsule's payload.
@@ -65,18 +70,31 @@ type File struct {
 // key is not secret, so anyone holding it can mint a capsule this function accepts. A
 // caller acting on a restore must compare ServiceName, CapsuleID and CreatedAt against
 // what it expects, and take freshness from the deposit record rather than the container.
-// Callers that want the manifest without a key want ReadUnverifiedManifest, and should
-// read that type's doc comment first.
+// Callers that want origin authenticity from a product's hybrid signing key want
+// OpenSigned (or VerifyManifest when no recovery key is held). Callers that want the
+// manifest without any key want ReadUnverifiedManifest, and should read that type's doc
+// comment first.
+//
+// Open accepts both unsigned capsules and signed capsules without checking any manifest
+// signature, preserving backward compatibility for callers without a signer public key.
 //
 // A capsule names the recovery key it was sealed to. Open compares that name with the key
 // it was given before decapsulating anything, and fails with ErrWrongRecoveryKey on a
 // mismatch — the custodians brought the wrong kit, and that is worth saying plainly.
 func Open(raw []byte, with recoverykey.PrivateKey, targetDir string) (Manifest, []File, error) {
-	m, payload, err := decryptPayload(raw, with)
+	cf, err := parseContainer(raw)
 	if err != nil {
 		return Manifest{}, nil, err
 	}
-	// The file list is inside the payload, so it is read only after decryptPayload has
+	return openContainer(cf, with, targetDir)
+}
+
+func openContainer(cf kycapFile, with recoverykey.PrivateKey, targetDir string) (Manifest, []File, error) {
+	m, payload, err := decryptContainer(cf, with)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	// The file list is inside the payload, so it is read only after decryptContainer has
 	// authenticated the container and verified the payload hash.
 	files, entries, err := extractPayload(payload, targetDir)
 	if err != nil {

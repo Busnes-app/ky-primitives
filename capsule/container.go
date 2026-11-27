@@ -26,9 +26,19 @@ import (
 // tell a caller which half, and nothing is in the wild.
 const KycapFileFormat = "kycap/3"
 
+// ManifestSignatureLabel is the hybridsig domain separation label for optional kycap/3
+// manifest signatures. Binding the container format version in the label keeps signatures
+// made for another protocol or container version from replaying here.
+const ManifestSignatureLabel = "kycap/3/manifest"
+
 // maxManifestBytes bounds the manifest before it is parsed. A manifest is a few hundred
 // bytes of JSON; a megabyte of it is already absurd.
 const maxManifestBytes = 1 << 20
+
+// maxSignatureBytes bounds the base64-encoded manifest_signature envelope field. A
+// hybridsig signature is 3389 bytes (4520 bytes in standard base64); 8 KiB leaves room
+// without letting a hostile container blow up the envelope parser.
+const maxSignatureBytes = 8 << 10
 
 // maxFileListBytes bounds the encoded file list, which lives inside the payload rather
 // than the manifest. It is the budget that list had while it was a manifest field, kept
@@ -48,22 +58,24 @@ type manifest = UnverifiedManifest
 // kycapFile is the JSON container.
 //
 // Manifest is kept as raw bytes rather than a decoded struct because those exact bytes are
-// the additional authenticated data. Re-encoding a decoded manifest to rebuild the AAD
-// would have to reproduce the writer's spelling byte for byte — field order, number
-// formatting, the interface{} shape of dependencies — and any drift there fails every
-// capsule rather than any forgery. The bytes that were read are the bytes that are
+// the additional authenticated data and, when signed, the exact bytes signed under
+// ManifestSignatureLabel. Re-encoding a decoded manifest to rebuild the AAD or verify a
+// signature would have to reproduce the writer's spelling byte for byte — field order,
+// number formatting, the interface{} shape of dependencies — and any drift there fails
+// every capsule rather than any forgery. The bytes that were read are the bytes that are
 // authenticated.
 type kycapFile struct {
-	Format     string          `json:"format"`
-	Manifest   json.RawMessage `json:"manifest"`
-	Ciphertext string          `json:"ciphertext"`
+	Format            string          `json:"format"`
+	Manifest          json.RawMessage `json:"manifest"`
+	Ciphertext        string          `json:"ciphertext"`
+	ManifestSignature string          `json:"manifest_signature,omitempty"`
 }
 
 // parseContainer parses the container envelope and bounds every attacker-controlled part of
 // it before anything downstream can act on it. decryptPayload calls this with bytes it will
-// decrypt under a key; ReadUnverifiedManifest calls it with bytes from a caller who has no
-// key at all and so no other defence — both need the same limits, and a second copy of any
-// of them is how it stops matching the first.
+// decrypt under a key; ReadUnverifiedManifest and VerifyManifest call it with bytes from a
+// caller who has no recovery key at all and so no other defence — all of them need the
+// same limits, and a second copy of any of them is how it stops matching the first.
 func parseContainer(raw []byte) (kycapFile, error) {
 	if err := checkContainerSize("container", len(raw)); err != nil {
 		return kycapFile{}, err
@@ -88,6 +100,9 @@ func parseContainer(raw []byte) (kycapFile, error) {
 	if len(cf.Manifest) > maxManifestBytes {
 		return kycapFile{}, fmt.Errorf("%w: manifest is %d bytes", ErrCorruptCapsule, len(cf.Manifest))
 	}
+	if len(cf.ManifestSignature) > maxSignatureBytes {
+		return kycapFile{}, fmt.Errorf("%w: manifest signature is %d bytes", ErrCorruptCapsule, len(cf.ManifestSignature))
+	}
 	return cf, nil
 }
 
@@ -99,9 +114,13 @@ func decryptPayload(raw []byte, with recoverykey.PrivateKey) (manifest, []byte, 
 	if err != nil {
 		return manifest{}, nil, err
 	}
-	var m manifest
-	if err := json.Unmarshal(cf.Manifest, &m); err != nil {
-		return manifest{}, nil, fmt.Errorf("%w: unreadable manifest: %v", ErrCorruptCapsule, err)
+	return decryptContainer(cf, with)
+}
+
+func decryptContainer(cf kycapFile, with recoverykey.PrivateKey) (manifest, []byte, error) {
+	m, err := decodeManifest(cf.Manifest)
+	if err != nil {
+		return manifest{}, nil, err
 	}
 
 	if with.IsZero() {

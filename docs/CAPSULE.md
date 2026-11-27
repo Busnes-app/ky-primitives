@@ -72,6 +72,32 @@ a malformed container; an AEAD failure wraps none of them.
 
 The ciphertext field is standard base64 in and out.
 
+### Optional hybrid manifest signing
+
+On Go 1.27+, a product can sign a capsule's canonical manifest bytes with a per-product
+`hybridsig` key (ML-DSA-65 + Ed25519) so a blind backup store such as `kyrecovery` can
+authenticate deposit metadata without holding the recovery key:
+
+```go
+raw, m, err := capsule.SealSigned(name, version, files, nil, nil, 2, 3, pub, signer)
+vm, err := capsule.VerifyManifest(raw, signerPub)            // no recovery key; Files is empty
+m, files, err := capsule.OpenSigned(raw, priv, signerPub, dir)
+```
+
+`SealSigned` records `signer.Public().ID()` in `manifest.signer_key_id` before marshalling
+the manifest (so it is covered by both the HPKE AEAD and the signature), signs the exact
+raw manifest JSON bytes under `capsule.ManifestSignatureLabel` (`"kycap/3/manifest"`), and
+stores the standard-base64 signature in the container's optional `manifest_signature`
+field.
+
+`VerifyManifest` checks both halves of the hybrid signature (and refuses a `signer_key_id`
+mismatch) and returns a distinct `VerifiedManifest` type without decrypting the payload.
+`OpenSigned` runs the same verification before decapsulating or touching `targetDir`.
+Unsigned capsules omit both optional fields, continue to open with `Open` (on Go 1.26 and
+Go 1.27), and fail `VerifyManifest` / `OpenSigned` with `ErrMissingSignature`; any
+tampered manifest, tampered half, wrong key, or wrong domain fails with
+`ErrInvalidSignature`.
+
 ### Extraction hardening
 
 The payload decrypts to a gzipped tar, extracted through this hardened path. It is ported
